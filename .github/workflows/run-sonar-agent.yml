@@ -1,0 +1,43 @@
+name: Run Sonar Fix Agent
+
+# Trigger on push or manual workflow dispatch
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # allows manual trigger
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout your repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2. Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      # 3. Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 4. Create .env file from GitHub Secrets
+      - name: Create .env
+        run: |
+          echo "GITHUB_TOKEN=${{ secrets.MY_GITHUB_TOKEN }}" >> .env
+          echo "SONAR_TOKEN=${{ secrets.SONAR_TOKEN }}" >> .env
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
+          echo "GITHUB_REPOSITORY=${{ secrets.REPOSITORY }}" >> .env
+          echo "SONAR_URL=${{ secrets.SONAR_URL }}" >> .env
+
+      # 5. Run the AI agent
+      - name: Run Sonar Fix Agent
+        run: |
+          python -m sonar_fix_agent.main
