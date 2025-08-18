@@ -41,9 +41,16 @@ jobs:
           echo "GITHUB_TOKEN=${{ secrets.MY_GITHUB_TOKEN }}" >> .env
           echo "SONAR_TOKEN=${{ secrets.SONAR_TOKEN }}" >> .env
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
-          echo "GITHUB_REPOSITORY=${{ secrets.GITHUB_REPOSITORY }}" >> .env
+          echo "GITHUB_REPOSITORY=${{ secrets.REPOSITORY }}" >> .env
           echo "SONAR_URL=${{ secrets.SONAR_URL }}" >> .env
 
-      # 6️⃣ Run the Sonar Fix Agent
+      # 6️⃣ Debug environment variables (optional, can remove later)
+      - name: Debug env
+        run: |
+          cat .env
+          echo "GITHUB_REPOSITORY: ${{ secrets.REPOSITORY }}"
+          echo "SONAR_URL: ${{ secrets.SONAR_URL }}"
+
+      # 7️⃣ Run the Sonar Fix Agent
       - name: Run Sonar Fix Agent
         run: python -m sonar_fix_agent.main
