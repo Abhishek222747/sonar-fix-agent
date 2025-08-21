@@ -25,6 +25,7 @@ def main():
 
         project_key = repo_full.replace("/", ":")
         issues = fetch_issues(project_key)
+        print("All issues fetched from SonarCloud:", issues)
         print(f"Found {len(issues)} issues in SonarCloud.")
 
         targets = choose_auto_fixables(issues)
