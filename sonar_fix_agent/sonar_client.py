@@ -12,16 +12,12 @@ def fetch_issues(project_key):
     response.raise_for_status()
     return response.json().get("issues", [])
 
-# Exact rules for the 3 current issues in your target repo
+# Exact rules for your 3 current issues
 SAFE_RULES = {
-    "java:S1118",            # Add private constructor
-    "java:UnusedLocalVariable",  # Remove unused local variable "dbPassword"
-    "java:S125"              # Remove commented-out lines
+    "java:S1118",   # Add a private constructor
+    "java:S1481",   # Remove unused local variable "dbPassword"
+    "java:S125"     # Remove commented-out lines
 }
 
 def choose_auto_fixables(issues):
-    selected = [i for i in issues if i["rule"] in SAFE_RULES]
-    print(f"Found {len(selected)} auto-fixable issues")
-    for i in selected:
-        print(f"- {i['component']} : {i['message']} ({i['rule']})")
-    return selected
+    return [i for i in issues if i["rule"] in SAFE_RULES]
