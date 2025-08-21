@@ -1,29 +1,44 @@
+import os
 import requests
-from .config import SONAR_TOKEN, SONAR_URL
+import random
 
-# Set of rules we want to auto-fix
-SAFE_RULES = {
-    "java:S1118",            # Add private constructor
-    "java:UnusedLocalVariable",  # Remove unused local variable
-    "java:S125"              # Remove commented-out lines
-}
+SONAR_TOKEN = os.getenv("SONAR_TOKEN")
+SONAR_URL = os.getenv("SONAR_URL")  # e.g., https://sonarcloud.io
 
 def fetch_issues(project_key):
     """
-    Fetch all issues from SonarCloud for the given project key.
+    Fetch all issues from SonarCloud for the given project_key.
+    Returns a list of issue dicts.
     """
-    url = f"{SONAR_URL}/api/issues/search"
-    params = {"componentKeys": project_key, "ps": 500}
-    print(f"Fetching issues from SonarCloud: {url} for project {project_key}")
-    response = requests.get(url, params=params, auth=(SONAR_TOKEN, ''))
-    response.raise_for_status()
-    issues = response.json().get("issues", [])
-    print(f"Fetched {len(issues)} issues")
+    issues = []
+    page = 1
+    page_size = 500
+
+    while True:
+        url = f"{SONAR_URL}/api/issues/search"
+        params = {
+            "componentKeys": project_key,
+            "ps": page_size,
+            "p": page,
+            "resolved": "false",
+        }
+        response = requests.get(url, params=params, auth=(SONAR_TOKEN, ""))
+        response.raise_for_status()
+        data = response.json()
+        page_issues = data.get("issues", [])
+        if not page_issues:
+            break
+        issues.extend(page_issues)
+        if len(page_issues) < page_size:
+            break
+        page += 1
+
     return issues
 
-def choose_auto_fixables(issues):
+def choose_auto_fixables(issues, max_fixes=3):
     """
-    Return only issues that are safe to auto-fix according to SAFE_RULES
+    Randomly selects up to max_fixes issues to attempt fixing.
     """
-    auto_fixables = [i for i in issues if i["rule"] in SAFE_RULES]
-    return auto_fixables
+    if not issues:
+        return []
+    return random.sample(issues, min(len(issues), max_fixes))
