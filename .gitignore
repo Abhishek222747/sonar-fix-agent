@@ -1,3 +1,4 @@
-__pycache__/
 *.pyc
-.env
+__pycache__/
+.tmp.patch
+.fixed_issues.json

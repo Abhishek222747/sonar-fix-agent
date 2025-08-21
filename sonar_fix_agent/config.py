@@ -1,18 +1,12 @@
-from dotenv import load_dotenv
 import os
 
-# Load variables from .env file
-load_dotenv()
-
+# GitHub & Sonar tokens
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 SONAR_TOKEN = os.getenv("SONAR_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-SONAR_URL = os.getenv("SONAR_URL", "https://sonarcloud.io")
-MAX_FIX_LINES = int(os.getenv("MAX_FIX_LINES", "10"))
+SONAR_URL = os.getenv("SONAR_URL")  # e.g., https://sonarcloud.io
 
-# Debug prints to verify environment variables
-print("GITHUB_TOKEN loaded:", bool(GITHUB_TOKEN))
-print("SONAR_TOKEN loaded:", bool(SONAR_TOKEN))
-print("OPENAI_API_KEY loaded:", bool(OPENAI_API_KEY))
-print("SONAR_URL loaded:", SONAR_URL)
-print("MAX_FIX_LINES:", MAX_FIX_LINES)
+# OpenAI / LLM API key
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Max fixes per PR (batch size)
+MAX_FIXES_PER_PR = 3

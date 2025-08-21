@@ -1,4 +1,4 @@
-requests
-PyGithub
+PyGithub>=1.55
+requests>=2.28
 openai
 python-dotenv
