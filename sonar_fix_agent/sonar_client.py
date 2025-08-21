@@ -20,4 +20,8 @@ SAFE_RULES = {
 }
 
 def choose_auto_fixables(issues):
+    print("All issues fetched from SonarCloud:")
+    for i in issues:
+        print(f"{i['component']} → {i['rule']}: {i['message']}")
     return [i for i in issues if i["rule"] in SAFE_RULES]
+
