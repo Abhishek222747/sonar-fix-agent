@@ -1,7 +1,7 @@
 import os
 import tempfile
 from pathlib import Path
-from .config import GITHUB_TOKEN, OPENAI_API_KEY, SONAR_URL, MAX_FIXES_PER_PR
+from .config import GITHUB_TOKEN, OPENAI_API_KEY, MAX_FIXES_PER_PR
 from .sonar_client import fetch_issues, choose_auto_fixables
 from .github_client import get_github_repo, create_pr
 from .llm_fixer import generate_patch
@@ -13,33 +13,27 @@ def main():
         print("Set GITHUB_REPOSITORY env var (e.g., user/repo)")
         return
 
-    # Get repo object from GitHub
     repo = get_github_repo(GITHUB_TOKEN, repo_full)
 
-    # Setup temporary directory
     with tempfile.TemporaryDirectory() as tmpdir:
         clone_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{repo_full}.git"
-        print(f"Cloning repo {repo_full} into {tmpdir}")
         run(["git", "clone", clone_url, tmpdir])
-
-        # Configure git user
         run(["git", "config", "user.name", "github-actions[bot]"], cwd=tmpdir)
         run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], cwd=tmpdir)
+        run(["git", "checkout", "-b", "bot/sonar-fixes"], cwd=tmpdir)
 
-        # Create new branch
-        branch_name = "bot/sonar-fixes"
-        run(["git", "checkout", "-b", branch_name], cwd=tmpdir)
-
-        # Fetch Sonar issues
         project_key = repo_full.replace("/", ":")
         issues = fetch_issues(project_key)
-        targets = choose_auto_fixables(issues, MAX_FIXES_PER_PR)
+        targets = choose_auto_fixables(issues)
 
         if not targets:
             print("No auto-fixable issues found.")
             return
 
+        # Limit fixes per PR
+        targets = targets[:MAX_FIXES_PER_PR]
         changed_files = set()
+
         for issue in targets:
             file_path = Path(tmpdir)/"/".join(issue["component"].split(":")[1:])
             if not file_path.exists():
@@ -65,17 +59,15 @@ def main():
             print("No fixes applied.")
             return
 
-        # Commit & push
         run(["git", "add", "-A"], cwd=tmpdir)
-        run(["git", "commit", "-m", f"fix(sonar): apply {len(changed_files)} automated fixes"], cwd=tmpdir)
-        run(["git", "push", "--set-upstream", "origin", branch_name], cwd=tmpdir)
+        run(["git", "commit", "-m", f"fix(sonar): applied {len(changed_files)} automated fixes"], cwd=tmpdir)
+        run(["git", "push", "--set-upstream", "origin", "bot/sonar-fixes"], cwd=tmpdir)
 
-        # Create PR
         pr_number = create_pr(
             repo,
-            branch_name,
-            f"fix(sonar): {len(changed_files)} automated fixes",
-            "This PR applies batch fixes for Sonar issues using the agent."
+            "bot/sonar-fixes",
+            "fix(sonar): automated fixes",
+            f"This PR fixes {len(changed_files)} Sonar issues automatically."
         )
         print(f"Opened PR #{pr_number}")
 
