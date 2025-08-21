@@ -1,48 +1,30 @@
-name: Automatic Sonar Fix
+name: Automatic Sonar Fix Agent
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
   run-sonar-fix:
     runs-on: ubuntu-latest
-
     env:
       GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_URL: ${{ secrets.SONAR_URL }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-
+      OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+      MAX_FIXES_PER_PR: 3
     steps:
-      # 1️⃣ Checkout repository
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      # 2️⃣ Setup Python
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
-      # 3️⃣ Setup Java (for Maven validation)
-      - name: Setup Java
-        uses: actions/setup-java@v3
-        with:
-          java-version: 17
-          distribution: temurin
-
-      # 4️⃣ Install dependencies
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
           pip install requests
 
-      # 5️⃣ Run Sonar Fix Agent
       - name: Run Sonar Fix Agent
-        run: |
-          echo "Starting Sonar Fix Agent..."
-          python -m sonar_fix_agent.main
+        run: python -m sonar_fix_agent.main

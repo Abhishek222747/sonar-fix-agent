@@ -1,13 +1,34 @@
 import os
 import tempfile
 from pathlib import Path
-from .config import GITHUB_TOKEN, MAX_FIXES_PER_PR, SONAR_TOKEN, SONAR_URL
+from .config import GITHUB_TOKEN, OPENAI_API_KEY, MAX_FIXES_PER_PR, SONAR_TOKEN, SONAR_URL
 from .sonar_client import fetch_issues, choose_auto_fixables
-from .github_client import get_github_repo, create_pr
+from .github_client import get_github_repo
 from .llm_fixer import generate_patch
 from .validator import run
 
+def create_pr_on_target_repo(repo, branch_name: str, pr_body: str):
+    """
+    Creates a PR on the upstream/target repo if this repo is a fork.
+    """
+    if repo.fork and repo.parent:
+        target_repo = repo.parent           # Upstream repository
+        head_branch = f"{repo.owner.login}:{branch_name}"  # Your fork branch
+    else:
+        target_repo = repo
+        head_branch = branch_name
+
+    pr = target_repo.create_pull(
+        title="fix(sonar): automated fixes",
+        body=pr_body,
+        head=head_branch,
+        base="main"  # or target branch in upstream
+    )
+    return pr.number
+
 def main():
+    print("Starting Sonar Fix Agent...")
+
     repo_full = os.getenv("GITHUB_REPOSITORY")
     if not repo_full:
         print("Set GITHUB_REPOSITORY env var (e.g., user/repo)")
@@ -25,18 +46,28 @@ def main():
 
         project_key = repo_full.replace("/", ":")
         issues = fetch_issues(project_key)
-        print(f"All issues fetched from SonarCloud ({len(issues)}): {[i['rule'] for i in issues]}")
-
-        targets = choose_auto_fixables(issues, max_fixes=MAX_FIXES_PER_PR)
-        print(f"Selected issues for fix: {[i['rule'] for i in targets]}")
+        print(f"All issues fetched from SonarCloud: {len(issues)}")
+        targets = choose_auto_fixables(issues)
+        print(f"Auto-fixable targets: {[i['rule'] for i in targets]}")
 
         if not targets:
-            print("No issues selected to fix.")
+            print("No auto-fixable issues found. Creating empty PR to test integration.")
+            run(["git", "commit", "--allow-empty", "-m", "Test PR: no fixes applied"], cwd=tmpdir)
+            run(["git", "push", "--set-upstream", "origin", "bot/sonar-fixes"], cwd=tmpdir)
+            pr_number = create_pr_on_target_repo(
+                repo,
+                "bot/sonar-fixes",
+                "This PR is created to verify GitHub Actions and Sonar integration."
+            )
+            print(f"Test PR created: #{pr_number}")
             return
 
+        # Limit fixes per PR
+        targets = targets[:MAX_FIXES_PER_PR]
         changed_files = set()
+
         for issue in targets:
-            file_path = Path(tmpdir) / "/".join(issue["component"].split(":")[1:])
+            file_path = Path(tmpdir)/"/".join(issue["component"].split(":")[1:])
             if not file_path.exists():
                 print(f"File not found for issue: {file_path}")
                 continue
@@ -47,7 +78,7 @@ def main():
                 print(f"No patch generated for {file_path}")
                 continue
 
-            patch_file = Path(tmpdir) / ".tmp.patch"
+            patch_file = Path(tmpdir)/".tmp.patch"
             patch_file.write_text(patch)
 
             try:
@@ -58,25 +89,16 @@ def main():
                 run(["git", "checkout", "--", str(file_path)], cwd=tmpdir)
                 continue
 
-        if not changed_files:
-            print("No fixes applied, but PR can still be created for tracking.")
-            # Optional: create empty commit to raise PR
-            run(["git", "commit", "--allow-empty", "-m", "Track Sonar issues PR"], cwd=tmpdir)
-
-        else:
-            run(["git", "add", "-A"], cwd=tmpdir)
-            run(["git", "commit", "-m", f"fix(sonar): applied {len(changed_files)} automated fixes"], cwd=tmpdir)
-
+        run(["git", "add", "-A"], cwd=tmpdir)
+        run(["git", "commit", "-m", f"fix(sonar): applied {len(changed_files)} automated fixes"], cwd=tmpdir)
         run(["git", "push", "--set-upstream", "origin", "bot/sonar-fixes"], cwd=tmpdir)
 
-        pr_number = create_pr(
+        pr_number = create_pr_on_target_repo(
             repo,
             "bot/sonar-fixes",
-            "fix(sonar): automated fixes",
-            f"This PR attempts to fix {len(changed_files)} Sonar issues automatically."
+            f"This PR fixes {len(changed_files)} Sonar issues automatically."
         )
         print(f"Opened PR #{pr_number}")
-
 
 if __name__ == "__main__":
     main()
