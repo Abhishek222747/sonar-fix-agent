@@ -1,24 +1,19 @@
 import requests
 from .config import SONAR_TOKEN, SONAR_URL
 
-def fetch_issues(project_key):
+def fetch_issues(project_key, severities=None):
+    """
+    Fetch all issues for the given project key from SonarQube.
+    By default, fetch all severities.
+    """
     url = f"{SONAR_URL}/api/issues/search"
     params = {
         "componentKeys": project_key,
-        "severities": "MAJOR,CRITICAL,BLOCKER",
-        "ps": 500
+        "ps": 500  # page size
     }
+    if severities:
+        params["severities"] = ",".join(severities)
+
     response = requests.get(url, params=params, auth=(SONAR_TOKEN, ''))
     response.raise_for_status()
     return response.json().get("issues", [])
-
-# Filter safe fixable Java rules
-SAFE_RULES = {
-    "java:S1128",  # unused imports
-    "java:S1068",  # unused private fields
-    "java:S1854",  # unused assignments
-    "java:S1481",  # unused local variables
-}
-
-def choose_auto_fixables(issues):
-    return [i for i in issues if i["rule"] in SAFE_RULES]
