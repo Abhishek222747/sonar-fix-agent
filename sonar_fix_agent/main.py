@@ -5,7 +5,7 @@ from .config import GITHUB_TOKEN, OPENAI_API_KEY, MAX_FIXES_PER_PR, SONAR_TOKEN,
 from .sonar_client import fetch_issues, choose_auto_fixables
 from .github_client import get_github_repo, create_pr
 from .llm_fixer import generate_patch
-from .validator import run, validate_repo
+from .validator import run
 
 def main():
     repo_full = os.getenv("GITHUB_REPOSITORY")
@@ -26,13 +26,22 @@ def main():
         project_key = repo_full.replace("/", ":")
         issues = fetch_issues(project_key)
         print("All issues fetched from SonarCloud:", issues)
-        print(f"Found {len(issues)} issues in SonarCloud.")
 
         targets = choose_auto_fixables(issues)
         print(f"Auto-fixable targets: {[i['rule'] for i in targets]}")
 
+        # Fallback: create a PR even if no auto-fixable issues (testing)
         if not targets:
-            print("No auto-fixable issues found.")
+            print("No auto-fixable issues found. Creating test PR...")
+            run(["git", "commit", "--allow-empty", "-m", "Test PR: no fixes applied"], cwd=tmpdir)
+            run(["git", "push", "--set-upstream", "origin", "bot/sonar-fixes"], cwd=tmpdir)
+            pr_number = create_pr(
+                repo,
+                "bot/sonar-fixes",
+                "Test PR: no fixes applied",
+                "This PR is created to verify GitHub Actions and Sonar integration."
+            )
+            print(f"Opened test PR #{pr_number}")
             return
 
         # Limit fixes per PR
@@ -63,9 +72,19 @@ def main():
                 continue
 
         if not changed_files:
-            print("No fixes applied.")
+            print("No fixes applied. Creating test PR...")
+            run(["git", "commit", "--allow-empty", "-m", "Test PR: no fixes applied"], cwd=tmpdir)
+            run(["git", "push", "--set-upstream", "origin", "bot/sonar-fixes"], cwd=tmpdir)
+            pr_number = create_pr(
+                repo,
+                "bot/sonar-fixes",
+                "Test PR: no fixes applied",
+                "This PR is created to verify GitHub Actions and Sonar integration."
+            )
+            print(f"Opened test PR #{pr_number}")
             return
 
+        # Commit real fixes
         run(["git", "add", "-A"], cwd=tmpdir)
         run(["git", "commit", "-m", f"fix(sonar): applied {len(changed_files)} automated fixes"], cwd=tmpdir)
         run(["git", "push", "--set-upstream", "origin", "bot/sonar-fixes"], cwd=tmpdir)
@@ -77,6 +96,7 @@ def main():
             f"This PR fixes {len(changed_files)} Sonar issues automatically."
         )
         print(f"Opened PR #{pr_number}")
+
 
 if __name__ == "__main__":
     main()
