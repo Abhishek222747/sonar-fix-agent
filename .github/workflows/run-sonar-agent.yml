@@ -1,6 +1,5 @@
-name: Run Sonar Fix Agent
+name: Sonar Fix Agent
 
-# Trigger on push to main or manual run
 on:
   push:
     branches:
@@ -8,49 +7,40 @@ on:
   workflow_dispatch:
 
 jobs:
-  run-agent:
+  sonar-fix:
     runs-on: ubuntu-latest
 
+    env:
+      GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_URL: ${{ secrets.SONAR_URL }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
     steps:
-      # 1️⃣ Checkout the repo
-      - name: Checkout repository
+      # 1️⃣ Checkout the repository
+      - name: Checkout repo
         uses: actions/checkout@v3
 
       # 2️⃣ Setup Python
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: 3.11
 
-      # 3️⃣ Install dependencies
+      # 3️⃣ Setup Java (for Maven validation)
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          distribution: temurin
+
+      # 4️⃣ Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 4️⃣ Setup Java (for validator if Maven is used)
-      - name: Setup JDK
-        uses: actions/setup-java@v3
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      # 5️⃣ Create .env file from GitHub Secrets
-      - name: Create .env
-        run: |
-          echo "GITHUB_TOKEN=${{ secrets.MY_GITHUB_TOKEN }}" >> .env
-          echo "SONAR_TOKEN=${{ secrets.SONAR_TOKEN }}" >> .env
-          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
-          echo "GITHUB_REPOSITORY=${{ secrets.REPOSITORY }}" >> .env
-          echo "SONAR_URL=${{ secrets.SONAR_URL }}" >> .env
-
-      # 6️⃣ Debug environment variables (optional, can remove later)
-      - name: Debug env
-        run: |
-          cat .env
-          echo "GITHUB_REPOSITORY: ${{ secrets.REPOSITORY }}"
-          echo "SONAR_URL: ${{ secrets.SONAR_URL }}"
-
-      # 7️⃣ Run the Sonar Fix Agent
+      # 5️⃣ Run Sonar Fix Agent
       - name: Run Sonar Fix Agent
-        run: python -m sonar_fix_agent.main
+        run: |
+          python -m sonar_fix_agent.main
