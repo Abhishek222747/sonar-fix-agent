@@ -1,7 +1,7 @@
 import os
 import tempfile
 from pathlib import Path
-from .config import GITHUB_TOKEN, OPENAI_API_KEY, MAX_FIXES_PER_PR
+from .config import GITHUB_TOKEN, OPENAI_API_KEY, MAX_FIXES_PER_PR, SONAR_TOKEN, SONAR_URL
 from .sonar_client import fetch_issues, choose_auto_fixables
 from .github_client import get_github_repo, create_pr
 from .llm_fixer import generate_patch
@@ -17,6 +17,7 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         clone_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{repo_full}.git"
+        print(f"Cloning repo {repo_full} into {tmpdir}")
         run(["git", "clone", clone_url, tmpdir])
         run(["git", "config", "user.name", "github-actions[bot]"], cwd=tmpdir)
         run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], cwd=tmpdir)
@@ -24,7 +25,10 @@ def main():
 
         project_key = repo_full.replace("/", ":")
         issues = fetch_issues(project_key)
+        print(f"Found {len(issues)} issues in SonarCloud.")
+
         targets = choose_auto_fixables(issues)
+        print(f"Auto-fixable targets: {[i['rule'] for i in targets]}")
 
         if not targets:
             print("No auto-fixable issues found.")
@@ -37,11 +41,13 @@ def main():
         for issue in targets:
             file_path = Path(tmpdir)/"/".join(issue["component"].split(":")[1:])
             if not file_path.exists():
+                print(f"File not found for issue: {file_path}")
                 continue
 
             code = file_path.read_text(encoding="utf-8", errors="ignore")
             patch = generate_patch(str(file_path), code, issue["rule"], issue["message"])
             if not patch:
+                print(f"No patch generated for {file_path}")
                 continue
 
             patch_file = Path(tmpdir)/".tmp.patch"
