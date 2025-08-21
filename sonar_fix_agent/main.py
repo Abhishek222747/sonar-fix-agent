@@ -1,57 +1,45 @@
 import os
 import tempfile
-import json
 from pathlib import Path
-from collections import defaultdict
-from .config import GITHUB_TOKEN, MAX_FIXES_PER_PR
-from .sonar_client import fetch_issues
+from .config import GITHUB_TOKEN, OPENAI_API_KEY, SONAR_URL, MAX_FIXES_PER_PR
+from .sonar_client import fetch_issues, choose_auto_fixables
 from .github_client import get_github_repo, create_pr
 from .llm_fixer import generate_patch
-from .validator import run
-
-FIXED_KEYS_FILE = ".fixed_issues.json"
+from .validator import run, validate_repo
 
 def main():
     repo_full = os.getenv("GITHUB_REPOSITORY")
     if not repo_full:
-        print("Set GITHUB_REPOSITORY env var (user/repo)")
+        print("Set GITHUB_REPOSITORY env var (e.g., user/repo)")
         return
 
+    # Get repo object from GitHub
     repo = get_github_repo(GITHUB_TOKEN, repo_full)
+
+    # Setup temporary directory
     with tempfile.TemporaryDirectory() as tmpdir:
         clone_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{repo_full}.git"
+        print(f"Cloning repo {repo_full} into {tmpdir}")
         run(["git", "clone", clone_url, tmpdir])
+
+        # Configure git user
         run(["git", "config", "user.name", "github-actions[bot]"], cwd=tmpdir)
         run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], cwd=tmpdir)
-        run(["git", "checkout", "-b", "bot/sonar-fixes"], cwd=tmpdir)
 
+        # Create new branch
+        branch_name = "bot/sonar-fixes"
+        run(["git", "checkout", "-b", branch_name], cwd=tmpdir)
+
+        # Fetch Sonar issues
         project_key = repo_full.replace("/", ":")
         issues = fetch_issues(project_key)
-        if not issues:
-            print("✅ No Sonar issues found.")
+        targets = choose_auto_fixables(issues, MAX_FIXES_PER_PR)
+
+        if not targets:
+            print("No auto-fixable issues found.")
             return
-
-        fixed_keys_path = Path(tmpdir)/FIXED_KEYS_FILE
-        fixed_keys = json.load(fixed_keys_path) if fixed_keys_path.exists() else []
-
-        issues_to_fix = [i for i in issues if i["key"] not in fixed_keys]
-        if not issues_to_fix:
-            print("✅ All issues already fixed.")
-            return
-
-        issues_by_severity = defaultdict(list)
-        for issue in issues_to_fix:
-            sev = issue.get("severity", "MINOR")
-            issues_by_severity[sev].append(issue)
-
-        targets = []
-        for sev in ["BLOCKER", "CRITICAL", "MAJOR", "MINOR"]:
-            targets.extend(issues_by_severity.get(sev, []))
-        targets = targets[:MAX_FIXES_PER_PR]
 
         changed_files = set()
-        pr_summary = []
-
         for issue in targets:
             file_path = Path(tmpdir)/"/".join(issue["component"].split(":")[1:])
             if not file_path.exists():
@@ -68,23 +56,28 @@ def main():
             try:
                 run(["git", "apply", "--whitespace=fix", str(patch_file)], cwd=tmpdir)
                 changed_files.add(file_path)
-                pr_summary.append(f"- {issue['severity']}: {issue['message']} in {issue['component']}")
-                fixed_keys.append(issue["key"])
-            except Exception:
+            except Exception as e:
+                print(f"Failed to apply patch for {file_path}: {e}")
                 run(["git", "checkout", "--", str(file_path)], cwd=tmpdir)
+                continue
 
         if not changed_files:
-            print("⚠️ No fixes applied.")
+            print("No fixes applied.")
             return
 
+        # Commit & push
         run(["git", "add", "-A"], cwd=tmpdir)
-        run(["git", "commit", "-m", "fix(sonar): apply automated fixes"], cwd=tmpdir)
-        run(["git", "push", "--set-upstream", "origin", "bot/sonar-fixes"], cwd=tmpdir)
-        json.dump(fixed_keys, fixed_keys_path)
+        run(["git", "commit", "-m", f"fix(sonar): apply {len(changed_files)} automated fixes"], cwd=tmpdir)
+        run(["git", "push", "--set-upstream", "origin", branch_name], cwd=tmpdir)
 
-        pr_body = "This PR fixes the following SonarQube issues:\n\n" + "\n".join(pr_summary)
-        pr_number = create_pr(repo, "bot/sonar-fixes", "fix(sonar): automated fixes", pr_body)
-        print(f"🚀 Opened PR #{pr_number} with {len(targets)} fixes.")
+        # Create PR
+        pr_number = create_pr(
+            repo,
+            branch_name,
+            f"fix(sonar): {len(changed_files)} automated fixes",
+            "This PR applies batch fixes for Sonar issues using the agent."
+        )
+        print(f"Opened PR #{pr_number}")
 
 if __name__ == "__main__":
     main()

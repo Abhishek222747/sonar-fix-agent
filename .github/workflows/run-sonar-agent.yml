@@ -15,6 +15,7 @@ jobs:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_URL: ${{ secrets.SONAR_URL }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      MAX_FIXES_PER_PR: 3
 
     steps:
       # 1️⃣ Checkout the repository
@@ -27,12 +28,12 @@ jobs:
         with:
           python-version: 3.11
 
-      # 3️⃣ Setup Java (for Maven validation)
-      - name: Setup Java
-        uses: actions/setup-java@v3
+      # 3️⃣ Cache pip dependencies
+      - name: Cache pip
+        uses: actions/cache@v3
         with:
-          java-version: 17
-          distribution: temurin
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
 
       # 4️⃣ Install dependencies
       - name: Install dependencies
@@ -40,7 +41,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 5️⃣ Run Sonar Fix Agent
+      # 5️⃣ Setup Java (for Maven validation)
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          distribution: temurin
+
+      # 6️⃣ Run Sonar Fix Agent
       - name: Run Sonar Fix Agent
         run: |
           python -m sonar_fix_agent.main

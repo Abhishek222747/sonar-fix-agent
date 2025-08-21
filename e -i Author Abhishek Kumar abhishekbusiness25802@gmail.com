@@ -1,0 +1,84 @@
+[33mcommit 4a6e8f6b74e9094e7a3a05b0cc87df8956a2670e[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: Abhishek Kumar <abhishekbusiness25802@gmail.com>
+Date:   Thu Aug 21 11:11:25 2025 -0700
+
+    Remove .env file from repository
+
+[33mcommit 3a8d59746b4ed899a3508623c479a03c40368a89[m
+Author: Abhishek Kumar <abhishekbusiness25802@gmail.com>
+Date:   Thu Aug 21 11:09:30 2025 -0700
+
+    Added new changes
+
+[33mcommit a9e44ad7728b948a182e6e4b8e112585d1dc87db[m[33m ([m[1;31morigin/main[m[33m)[m
+Merge: c465e80 9298136
+Author: Abhishek Kumar <abhishekbusiness25802@gmail.com>
+Date:   Thu Aug 21 10:58:49 2025 -0700
+
+    Merge remote-tracking branch 'origin/main' into main
+
+[33mcommit c465e80e89f52b577d5191b0a7c7745045ca2318[m
+Author: Abhishek Kumar <abhishekbusiness25802@gmail.com>
+Date:   Thu Aug 21 10:54:42 2025 -0700
+
+    Modified code to work on all sonar issues
+
+[33mcommit 92981365dd55664dd1f02f61c0509b47a8705923[m
+Author: Abhishek Kumar <140600879+Abhishek222747@users.noreply.github.com>
+Date:   Thu Aug 21 05:04:30 2025 +0000
+
+    Add files via upload
+
+[33mcommit 5bdcfa75d109bb3e073df21e1fb227958e3aaf69[m
+Author: Abhishek Kumar <140600879+Abhishek222747@users.noreply.github.com>
+Date:   Wed Aug 20 22:04:12 2025 -0700
+
+    Delete Sonar_Fix_Agent_Presentation.pptx
+
+[33mcommit ef76c7f40b498d0762d591f42b511a9d70da94df[m
+Author: Abhishek Kumar <abhishekbusiness25802@gmail.com>
+Date:   Mon Aug 18 12:49:41 2025 -0700
+
+    Add new changes
+
+[33mcommit a0eb2be382821fed652e1203a391f05765fdee49[m
+Author: Abhishek Kumar <140600879+Abhishek222747@users.noreply.github.com>
+Date:   Mon Aug 18 12:27:02 2025 -0700
+
+    Add files via upload
+
+[33mcommit 6b2030059b5e46b08c406cf5fbccb52601274c79[m
+Author: Abhishek Kumar <abhishekbusiness25802@gmail.com>
+Date:   Mon Aug 18 12:21:59 2025 -0700
+
+    Add new changes
+
+[33mcommit ec28c3ae4ba3b4fbab21dfa95277e0743c40aec6[m
+Author: Abhishek Kumar <140600879+Abhishek222747@users.noreply.github.com>
+Date:   Mon Aug 18 12:23:49 2025 -0700
+
+    Delete Sonar_Fix_Agent_Presentation.pptx
+
+[33mcommit da2a40442fa219c493a1554cd0efd30699f04994[m
+Author: Abhishek Kumar <140600879+Abhishek222747@users.noreply.github.com>
+Date:   Mon Aug 18 12:02:28 2025 -0700
+
+    Add files via upload
+
+[33mcommit 48613da0302ac10ea153a15caca379b24cf8c27a[m
+Author: Abhishek Kumar <abhishekbusiness25802@gmail.com>
+Date:   Sun Aug 17 13:52:53 2025 -0700
+
+    Add GitHub Actions workflow to run Sonar Fix Agent (saved version)
+
+[33mcommit 582bd7e290c42db33b966d8bdec29bb2b8af233c[m
+Author: Abhishek Kumar <abhishekbusiness25802@gmail.com>
+Date:   Sun Aug 17 13:49:15 2025 -0700
+
+    Add GitHub Actions workflow to run Sonar Fix Agent
+
+[33mcommit ef3b22524e9126515cc0a3b7d6e351847ce070cf[m
+Author: Abhishek Kumar <abhishekbusiness25802@gmail.com>
+Date:   Sun Aug 17 13:28:27 2025 -0700
+
+    Initial commit: add sonar-fix-agent project
