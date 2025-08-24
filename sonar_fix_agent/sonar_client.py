@@ -1,43 +1,98 @@
 import requests
-from typing import List, Dict, Any, Optional
-from .config import SONAR_TOKEN, SONAR_URL
+from typing import List, Dict, Any, Optional, Tuple
+from urllib.parse import urljoin
+from .config import SONAR_TOKEN, SONAR_URL, SONAR_ORGANIZATION
 
-def list_projects() -> List[Dict[str, Any]]:
-    """List all projects accessible with the current token"""
+def make_sonar_request(endpoint: str, params: Optional[Dict] = None) -> Tuple[bool, Dict]:
+    """Make a request to the SonarQube API with proper authentication and error handling"""
+    if params is None:
+        params = {}
+    
+    # Add organization if specified
+    if SONAR_ORGANIZATION:
+        params['organization'] = SONAR_ORGANIZATION
+    
+    url = urljoin(f"{SONAR_URL.rstrip('/')}/api/", endpoint.lstrip('/'))
+    
     try:
-        url = f"{SONAR_URL.rstrip('/')}/api/projects/search"
-        print(f"\n🔍 Listing all accessible projects...")
-        print(f"   URL: {url}")
-        
         response = requests.get(
             url,
+            params=params,
             auth=(SONAR_TOKEN, "") if SONAR_TOKEN else None,
             timeout=30
         )
         response.raise_for_status()
-        data = response.json()
-        
-        projects = data.get('components', [])
-        print(f"✅ Found {len(projects)} accessible projects")
-        
-        if projects:
-            print("\n📋 Accessible projects:")
-            for i, project in enumerate(projects, 1):
-                print(f"   {i}. {project.get('key')} - {project.get('name')}")
-        
-        return projects
-    except Exception as e:
-        print(f"❌ Error listing projects: {str(e)}")
+        return True, response.json()
+    except requests.exceptions.RequestException as e:
+        error_msg = str(e)
         if hasattr(e, 'response') and e.response is not None:
-            print(f"   Status: {e.response.status_code}")
-            print(f"   Body: {e.response.text[:500]}")
-        return []
+            error_msg = f"{e.response.status_code} {e.response.reason}"
+            try:
+                error_data = e.response.json()
+                if 'errors' in error_data:
+                    error_msg += f" - {error_data['errors'][0].get('msg', '')}"
+            except:
+                error_msg += f" - {e.response.text[:200]}"
+        return False, {"error": error_msg, "status_code": getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None}
+
+def list_projects() -> List[Dict[str, Any]]:
+    """List all projects accessible with the current token"""
+    print("\n🔍 Listing all accessible projects...")
+    
+    all_projects = []
+    page = 1
+    page_size = 100
+    
+    while True:
+        success, result = make_sonar_request(
+            'projects/search',
+            params={
+                'p': page,
+                'ps': page_size
+            }
+        )
+        
+        if not success:
+            print(f"❌ Error listing projects: {result.get('error')}")
+            break
+            
+        if 'components' not in result:
+            print("⚠️ Unexpected response format. Available keys:", list(result.keys()))
+            if 'errors' in result:
+                print("   Errors:", result['errors'])
+            break
+            
+        projects = result.get('components', [])
+        all_projects.extend(projects)
+        
+        paging = result.get('paging', {})
+        total = paging.get('total', 0)
+        
+        print(f"   Fetched page {page} with {len(projects)} projects (total: {len(all_projects)}/{total})")
+        
+        if len(all_projects) >= total or not projects:
+            break
+            
+        page += 1
+    
+    print(f"\n📋 Found {len(all_projects)} accessible projects:")
+    for i, project in enumerate(all_projects[:10], 1):  # Show first 10 projects
+        print(f"   {i}. {project.get('key')} - {project.get('name')}")
+    if len(all_projects) > 10:
+        print(f"   ... and {len(all_projects) - 10} more")
+    
+    return all_projects
 
 def fetch_issues(project_key: str) -> List[Dict[str, Any]]:
     """
-    Fetch all issues from SonarCloud for the given project_key.
+    Fetch all issues from SonarQube/SonarCloud for the given project_key.
     Handles pagination automatically.
     """
+    print(f"\n🔍 Fetching issues for project: {project_key}")
+    print(f"🔗 SonarQube URL: {SONAR_URL}")
+    print(f"🔑 Using token: {'*' * 8}{SONAR_TOKEN[-4:] if SONAR_TOKEN else 'None'}")
+    if SONAR_ORGANIZATION:
+        print(f"🏢 Organization: {SONAR_ORGANIZATION}")
     def try_fetch_issues(params, endpoint="issues/search"):
         """Helper function to try fetching issues with given parameters"""
         nonlocal page, page_size, issues
