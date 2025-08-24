@@ -5,80 +5,131 @@ def fetch_issues(project_key):
     """
     Fetch all issues from SonarCloud for the given project_key.
     Handles pagination automatically.
-    """
+    ""
+    def try_fetch_issues(params, endpoint="issues/search"):
+        """Helper function to try fetching issues with given parameters"""
+        nonlocal page, page_size, issues
+        
+        while True:
+            url = f"{SONAR_URL.rstrip('/')}/api/{endpoint}"
+            params.update({"ps": page_size, "p": page})
+            
+            print(f"\n📡 Requesting {endpoint} (page {page})...")
+            print(f"   URL: {url}")
+            print(f"   Params: { {k: v for k, v in params.items() if k not in ['ps', 'p']} }")
+
+            try:
+                response = requests.get(
+                    url, 
+                    params=params, 
+                    auth=(SONAR_TOKEN, "") if SONAR_TOKEN else None,
+                    timeout=30
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                print(f"   Response keys: {list(data.keys())}")
+                
+                # Handle different response formats
+                if "issues" in data:
+                    page_issues = data["issues"]
+                    total = data.get("total", 0)
+                    print(f"   ✅ Fetched {len(page_issues)} issues from page {page}")
+                    print(f"   Total issues in response: {total}")
+                    
+                    if page_issues:
+                        print("\n📝 Sample issue:")
+                        sample = page_issues[0]
+                        for key in ['rule', 'message', 'component', 'status', 'severity']:
+                            print(f"   {key}: {sample.get(key)}")
+                    
+                    return page_issues, total
+                
+                elif "hotspots" in data:  # For security hotspots
+                    page_issues = data["hotspots"]
+                    total = data.get("paging", {}).get("total", 0)
+                    print(f"   🔥 Fetched {len(page_issues)} security hotspots from page {page}")
+                    return page_issues, total
+                
+                else:
+                    print(f"   ⚠️ Unexpected response format. Available keys: {list(data.keys())}")
+                    if "errors" in data:
+                        print(f"   ❌ Errors: {data['errors']}")
+                    return [], 0
+                
+            except requests.exceptions.RequestException as e:
+                print(f"   ❌ Error: {str(e)}")
+                if hasattr(e, 'response') and e.response is not None:
+                    print(f"   Status: {e.response.status_code}")
+                    print(f"   Body: {e.response.text[:500]}")
+                return [], 0
+    
+    # Initialize variables
     issues = []
     page = 1
-    page_size = 100  # Reduced page size for better reliability
+    page_size = 50  # Smaller page size for reliability
     
     print(f"🔍 Fetching issues for project: {project_key}")
     print(f"🔗 SonarQube URL: {SONAR_URL}")
     print(f"🔑 Using token: {'*' * 8}{SONAR_TOKEN[-4:] if SONAR_TOKEN else 'None'}")
-
-    while True:
-        url = f"{SONAR_URL.rstrip('/')}/api/issues/search"
-        params = {
-            "componentKeys": project_key,
-            "resolved": "false",
-            "ps": page_size,
-            "p": page,
-            "statuses": "OPEN,CONFIRMED,REOPENED"  # Explicitly request open issues
-        }
-
-        print(f"\n📡 Requesting page {page}...")
-        print(f"   URL: {url}")
-        print(f"   Params: { {k: v for k, v in params.items() if k != 'ps' and k != 'p'} }")
-
-        try:
-            # Basic auth using SONAR_TOKEN
-            response = requests.get(
-                url, 
-                params=params, 
-                auth=(SONAR_TOKEN, ""),
-                timeout=30
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            # Debug: Print API response keys
-            print(f"   Response keys: {list(data.keys())}")
-            
-            if "issues" in data:
-                page_issues = data["issues"]
-                issues.extend(page_issues)
-                print(f"   ✅ Fetched {len(page_issues)} issues from page {page}")
-                
-                # Debug: Print first few issues if any
-                if page_issues and page == 1:
-                    print("\n📝 Sample issue:")
-                    sample = page_issues[0]
-                    print(f"   Rule: {sample.get('rule')}")
-                    print(f"   Message: {sample.get('message')}")
-                    print(f"   Component: {sample.get('component')}")
-            else:
-                print(f"   ⚠️ No 'issues' key in response. Available keys: {list(data.keys())}")
-                if "errors" in data:
-                    print(f"   ❌ Errors: {data['errors']}")
-                break
-
-            # Check if there are more pages
-            total = data.get("total", 0)
-            print(f"   Total issues in SonarQube: {total}")
-            
-            if len(issues) >= total or not page_issues:
-                break
-                
-            page += 1
-            
-        except requests.exceptions.RequestException as e:
-            print(f"   ❌ Error fetching page {page}: {str(e)}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"   Response status: {e.response.status_code}")
-                print(f"   Response body: {e.response.text}")
+    
+    # Try different API endpoints and parameters
+    endpoints_to_try = [
+        # Try with component key as is
+        ({"componentKeys": project_key, "resolved": "false"}, "issues/search"),
+        # Try with project key only (without organization)
+        ({"componentKeys": project_key.split(':')[-1], "resolved": "false"}, "issues/search"),
+        # Try with additional parameters
+        ({"componentKeys": project_key, "statuses": "OPEN,CONFIRMED,REOPENED"}, "issues/search"),
+        # Try with all issues including resolved ones
+        ({"componentKeys": project_key}, "issues/search"),
+        # Try the project_issues endpoint
+        ({"project": project_key}, "project_issues/search"),
+        # Try hotspots endpoint
+        ({"projectKey": project_key}, "hotspots/search"),
+    ]
+    
+    for params, endpoint in endpoints_to_try:
+        print(f"\n🔍 Trying endpoint: {endpoint} with params: {params}")
+        page_issues, total = try_fetch_issues(params, endpoint)
+        
+        if page_issues:
+            issues.extend(page_issues)
+            print(f"✅ Successfully fetched {len(page_issues)} issues using {endpoint}")
             break
-
-    print(f"\n📊 Total issues fetched: {len(issues)}")
+    
+    # If still no issues, try to get project info to verify the project key
+    if not issues:
+        print("\n🔍 No issues found. Trying to verify project key...")
+        try:
+            url = f"{SONAR_URL.rstrip('/')}/api/components/show"
+            response = requests.get(
+                url,
+                params={"component": project_key},
+                auth=(SONAR_TOKEN, "") if SONAR_TOKEN else None,
+                timeout=10
+            )
+            if response.status_code == 200:
+                project_info = response.json()
+                print(f"✅ Project found: {project_info.get('component', {}).get('name')}")
+                print(f"   Key: {project_info.get('component', {}).get('key')}")
+                print(f"   Qualifier: {project_info.get('component', {}).get('qualifier')}")
+            else:
+                print(f"⚠️ Project not found or not accessible (Status: {response.status_code})")
+                print(f"   Response: {response.text[:500]}")
+        except Exception as e:
+            print(f"❌ Error verifying project: {str(e)}")
+    
+    print(f"\n📊 Total issues found: {len(issues)}")
     if issues:
-        print(f"   First issue rule: {issues[0].get('rule')}")
+        print(f"   First issue rule: {issues[0].get('rule', 'N/A')}")
+    else:
+        print("   No issues found. Please verify:")
+        print("   1. The project key is correct")
+        print("   2. The token has the right permissions")
+        print("   3. There are actually issues in the project")
+        print("   4. The issues are not filtered out by the query parameters")
+    
     return issues
 
 def choose_auto_fixables(issues):
