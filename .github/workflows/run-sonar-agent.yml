@@ -17,7 +17,11 @@ jobs:
       SONAR_URL: ${{ secrets.SONAR_URL }}
       SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION || github.repository_owner }}
       # Use the exact project key from the list of accessible projects
-      SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY || '***' }}  # Replace *** with the actual project key from the list
+      # Available projects:
+      # 1. *** (Name: Employee-Management-System)
+      # 2. Abhishek222747_LowLevelDesigns (Name: LowLevelDesigns)
+      # 3. Abhishek222747_sonar-fix-agent (Name: sonar-fix-agent)
+      SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY || '***' }}  # Using the correct project key
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
     steps:

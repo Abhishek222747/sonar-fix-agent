@@ -55,8 +55,17 @@ def main():
     print(f"\n🔗 Target repository: {repo_full}")
     print(f"🔗 SonarQube URL: {SONAR_URL}")
     
-    # Get the project key - try to use the same as the repo name if not set
-    project_key = os.getenv("SONAR_PROJECT_KEY", repo_full.replace("/", ":"))
+    # Get the project key from environment
+    project_key = os.getenv("SONAR_PROJECT_KEY")
+    if not project_key:
+        print("❌ SONAR_PROJECT_KEY environment variable not set")
+        print("Please set SONAR_PROJECT_KEY to one of these values:")
+        projects = list_projects()
+        if projects:
+            for proj in projects:
+                print(f"   - {proj.get('key')} (Name: {proj.get('name', 'N/A')})")
+        return
+    
     print(f"🔑 Using project key: {project_key}")
     
     # Validate required environment variables
