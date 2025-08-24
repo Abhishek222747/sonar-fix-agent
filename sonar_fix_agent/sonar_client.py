@@ -1,7 +1,39 @@
 import requests
+from typing import List, Dict, Any, Optional
 from .config import SONAR_TOKEN, SONAR_URL
 
-def fetch_issues(project_key):
+def list_projects() -> List[Dict[str, Any]]:
+    """List all projects accessible with the current token"""
+    try:
+        url = f"{SONAR_URL.rstrip('/')}/api/projects/search"
+        print(f"\n🔍 Listing all accessible projects...")
+        print(f"   URL: {url}")
+        
+        response = requests.get(
+            url,
+            auth=(SONAR_TOKEN, "") if SONAR_TOKEN else None,
+            timeout=30
+        )
+        response.raise_for_status()
+        data = response.json()
+        
+        projects = data.get('components', [])
+        print(f"✅ Found {len(projects)} accessible projects")
+        
+        if projects:
+            print("\n📋 Accessible projects:")
+            for i, project in enumerate(projects, 1):
+                print(f"   {i}. {project.get('key')} - {project.get('name')}")
+        
+        return projects
+    except Exception as e:
+        print(f"❌ Error listing projects: {str(e)}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"   Status: {e.response.status_code}")
+            print(f"   Body: {e.response.text[:500]}")
+        return []
+
+def fetch_issues(project_key: str) -> List[Dict[str, Any]]:
     """
     Fetch all issues from SonarCloud for the given project_key.
     Handles pagination automatically.

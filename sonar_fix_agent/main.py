@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from .config import GITHUB_TOKEN as MY_GITHUB_TOKEN, OPENAI_API_KEY, MAX_FIXES_PER_PR, SONAR_TOKEN, SONAR_URL
-from .sonar_client import fetch_issues, choose_auto_fixables
+from .sonar_client import fetch_issues, choose_auto_fixables, list_projects
 from .github_client import get_github_repo, create_pr
 from .llm_fixer import generate_patch
 from .validator import run, validate_repo
@@ -41,6 +41,23 @@ def main():
     print("🚀 Starting Sonar Fix Agent...")
     print(f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("-" * 50)
+    
+    # First, list all accessible projects to help with debugging
+    list_projects()
+    
+    # Get the target repository from environment
+    repo_full = os.getenv("REPOSITORY")
+    if not repo_full:
+        print("❌ Error: REPOSITORY environment variable not set")
+        print("Please set the REPOSITORY environment variable (e.g., 'owner/repo')")
+        return
+        
+    print(f"\n🔗 Target repository: {repo_full}")
+    print(f"🔗 SonarQube URL: {SONAR_URL}")
+    
+    # Get the project key - try to use the same as the repo name if not set
+    project_key = os.getenv("SONAR_PROJECT_KEY", repo_full.replace("/", ":"))
+    print(f"🔑 Using project key: {project_key}")
     
     # Validate required environment variables
     if not all([MY_GITHUB_TOKEN, SONAR_TOKEN, SONAR_URL, OPENAI_API_KEY]):
