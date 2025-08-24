@@ -20,7 +20,8 @@ def generate_patch(file_path: str, code: str, rule: str, message: str) -> Option
                 for i, line in enumerate(lines):
                     if line.strip().startswith("public class "):
                         class_name = line.strip().split()[2].split("{")[0].strip()
-                        lines.insert(i + 1, f"    private {class_name}() {{\n        // Private constructor to prevent instantiation\n        throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");\n    }}")
+                        lines.insert(i + 1, f'    private {class_name}() {{\
+        // Private constructor to prevent instantiation\n        throw new UnsupportedOperationException(\"This is a utility class and cannot be instantiated\");\n    }}')
                         changes.append(f"Added private constructor to {class_name}")
                         modified = True
                         break
