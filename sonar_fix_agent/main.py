@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-from .config import GITHUB_TOKEN as MY_GITHUB_TOKEN, OPENAI_API_KEY, MAX_FIXES_PER_PR, SONAR_TOKEN, SONAR_URL
+from .config import MY_GITHUB_TOKEN, OPENAI_API_KEY, MAX_FIXES_PER_PR, SONAR_TOKEN, SONAR_URL
 from .sonar_client import fetch_issues, choose_auto_fixables, list_projects
 from .github_client import get_github_repo, create_pr
 from .llm_fixer import generate_patch
