@@ -109,7 +109,11 @@ def main():
 
         # Fetch SonarQube issues
         print("🔍 Fetching SonarQube issues...")
-        project_key = f"{repo_full.replace('/', ':')}"
+        # Use the project key from environment variables
+        if not project_key:
+            print("❌ SONAR_PROJECT_KEY environment variable not set")
+            return
+            
         print(f"   Project key: {project_key}")
         
         try:
