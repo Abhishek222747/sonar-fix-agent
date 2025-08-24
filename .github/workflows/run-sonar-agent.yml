@@ -12,6 +12,7 @@ jobs:
 
     env:
       GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+      TARGET_REPOSITORY: ${{ secrets.REPOSITORY }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_URL: ${{ secrets.SONAR_URL }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

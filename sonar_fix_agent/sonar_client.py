@@ -47,10 +47,18 @@ def choose_auto_fixables(issues):
     Currently we consider some common safe rules.
     """
     SAFE_RULES = {
-        "java:S1118",            # Add private constructor
-        "java:UnusedLocalVariable",  # Remove unused local variable
-        "java:S125"              # Remove commented-out lines
+        "java:S1118",    # Add a private constructor to hide the implicit public one
+        "java:S1481",    # Unused local variables should be removed
+        "java:S125",     # Sections of code should not be commented out
+        "java:UnusedLocalVariable"  # Legacy rule ID for unused variables (keeping for backward compatibility)
     }
 
+    # Debug: Print all unique rule names found in issues
+    all_rules = {issue.get("rule") for issue in issues}
+    print(f"Found {len(all_rules)} unique rule types in SonarQube issues:")
+    for rule in sorted(all_rules):
+        print(f"  - {rule}")
+
     auto_fixable = [issue for issue in issues if issue.get("rule") in SAFE_RULES]
+    print(f"Found {len(auto_fixable)} auto-fixable issues out of {len(issues)} total issues")
     return auto_fixable
