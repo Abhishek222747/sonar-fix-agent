@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
-      TARGET_REPOSITORY: ${{ secrets.REPOSITORY }}
+      GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}  # Used by config.py
+      REPOSITORY: ${{ secrets.REPOSITORY }}  # Used by main.py
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_URL: ${{ secrets.SONAR_URL }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
