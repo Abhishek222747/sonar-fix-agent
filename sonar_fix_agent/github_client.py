@@ -27,27 +27,42 @@ def create_pr(repo, branch: str, title: str, body: str, base: str = "main") -> O
         PR number if successful, None otherwise
     """
     try:
+        print(f"🔍 Checking for existing PRs for branch: {branch}")
         # Check for existing PRs for this branch
         existing_prs = repo.get_pulls(state="open", head=f"{repo.owner.login}:{branch}")
+        
         if existing_prs.totalCount > 0:
             pr_number = existing_prs[0].number
-            print(f"ℹ️ PR #{pr_number} already exists for branch '{branch}': {existing_prs[0].html_url}")
+            pr_url = existing_prs[0].html_url
+            print(f"ℹ️ PR #{pr_number} already exists for branch '{branch}': {pr_url}")
             return pr_number
 
+        print(f"📝 Creating new PR from {branch} to {base}")
+        print(f"   Title: {title}")
+        print(f"   Body length: {len(body)} characters")
+        
         # Create new PR
         pr = repo.create_pull(
             title=title,
             body=body,
             head=branch,
-            base=base
+            base=base,
+            maintainer_can_modify=True
         )
         
-        print(f"✅ Successfully created PR #{pr.number}: {pr.html_url}")
+        print(f"✅ Successfully created PR #{pr.number}")
+        print(f"   URL: {pr.html_url}")
         print(f"   Title: {title}")
         print(f"   Branch: {branch} → {base}")
         
         return pr.number
         
+    except Exception as e:
+        print(f"❌ Failed to create PR: {str(e)}")
+        if hasattr(e, 'data') and 'errors' in e.data:
+            for error in e.data['errors']:
+                print(f"   Error: {error.get('message', 'Unknown error')}")
+        return None
     except GithubException as e:
         error_msg = str(e).lower()
         if "no commits between" in error_msg:
