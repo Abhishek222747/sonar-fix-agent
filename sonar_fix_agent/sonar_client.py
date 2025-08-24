@@ -93,6 +93,18 @@ def fetch_issues(project_key: str) -> List[Dict[str, Any]]:
     print(f"🔑 Using token: {'*' * 8}{SONAR_TOKEN[-4:] if SONAR_TOKEN else 'None'}")
     if SONAR_ORGANIZATION:
         print(f"🏢 Organization: {SONAR_ORGANIZATION}")
+    
+    # First verify the project exists and is accessible
+    success, result = make_sonar_request('components/show', {'component': project_key})
+    if not success:
+        print(f"❌ Error accessing project {project_key}: {result.get('error')}")
+        print("   Available projects:")
+        projects = list_projects()
+        if projects:
+            print("\nPlease use one of these project keys:")
+            for proj in projects:
+                print(f"   - {proj.get('key')} (Name: {proj.get('name', 'N/A')})")
+        return []
     def try_fetch_issues(params, endpoint="issues/search"):
         """Helper function to try fetching issues with given parameters"""
         nonlocal page, page_size, issues
