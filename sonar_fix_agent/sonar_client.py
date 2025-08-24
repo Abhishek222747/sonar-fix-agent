@@ -5,7 +5,7 @@ def fetch_issues(project_key):
     """
     Fetch all issues from SonarCloud for the given project_key.
     Handles pagination automatically.
-    ""
+    """
     def try_fetch_issues(params, endpoint="issues/search"):
         """Helper function to try fetching issues with given parameters"""
         nonlocal page, page_size, issues
