@@ -1,0 +1,70 @@
+name: Sonar Fix Agent
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  sonar-fix:
+    runs-on: ubuntu-latest
+
+    env:
+      MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+      REPOSITORY: ${{ secrets.REPOSITORY }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_URL: ${{ secrets.SONAR_URL }}
+      SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION || github.repository_owner }}
+      # Use the exact project key from the list of accessible projects
+      # Available projects:
+      # 1. *** (Name: Employee-Management-System)
+      # 2. Abhishek222747_LowLevelDesigns (Name: LowLevelDesigns)
+      # 3. Abhishek222747_sonar-fix-agent (Name: sonar-fix-agent)
+      SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY || '***' }}  # Using the correct project key
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    steps:
+      # 1️⃣ Checkout the repo with token
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.MY_GITHUB_TOKEN }}
+          fetch-depth: 0  # Fetch all history for all branches and tags
+
+      # 2️⃣ Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      # 3️⃣ Setup Java (for Maven validation)
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          distribution: temurin
+
+      # 4️⃣ Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install PyGithub python-dotenv
+          
+      # 5️⃣ Debug info
+      - name: Debug info
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Files in current directory:"
+          ls -la
+          echo "Git remote -v:"
+          git remote -v
+          echo "Git branch -a:"
+          git branch -a
+
+      # 5️⃣ Run Sonar Fix Agent with debug
+      - name: Run Sonar Fix Agent
+        run: |
+          echo "Starting Sonar Fix Agent..."
+          python -m sonar_fix_agent.main
