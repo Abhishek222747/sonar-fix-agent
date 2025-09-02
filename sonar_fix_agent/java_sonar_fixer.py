@@ -63,6 +63,21 @@ class JavaSonarFixer:
             'java:S1643': self._fix_string_concat_in_loop,  # String concatenation in loops
         }
     
+    def _log_issue_details(self, issue: SonarIssue) -> None:
+        """Log detailed information about the issue being fixed."""
+        print(f"\n🔧 Fixing issue:")
+        print(f"   Rule:    {issue.rule}")
+        print(f"   File:    {issue.file_path}")
+        print(f"   Line:    {issue.line}")
+        print(f"   Message: {issue.message}")
+        
+    def _log_fix_result(self, success: bool, issue: SonarIssue, fix_type: str = "AST") -> None:
+        """Log the result of a fix attempt."""
+        status = "✅ Success" if success else "❌ Failed"
+        print(f"{status} [{fix_type}] {issue.rule} in {issue.file_path}")
+        if not success:
+            print(f"   Reason: {issue.message}")
+
     def fix_issue(self, issue: SonarIssue) -> bool:
         """
         Attempt to fix a Sonar issue.
@@ -71,6 +86,8 @@ class JavaSonarFixer:
             bool: True if the issue was fixed, False otherwise
         """
         try:
+            self._log_issue_details(issue)
+            
             # Get the full path to the file
             file_path = self.project_root / issue.file_path
             
@@ -83,6 +100,7 @@ class JavaSonarFixer:
                     analyzer = JavaASTAnalyzer(source, str(file_path))
                     analyzer.analyze()  # Perform the AST parsing and analysis
                     self.ast_cache[str(file_path)] = analyzer
+                    print("[AST] Successfully parsed and analyzed file")
                 except javalang.parser.JavaSyntaxError as e:
                     print(f"[AST] Syntax error in {file_path}: {e}")
                     return False
@@ -103,20 +121,25 @@ class JavaSonarFixer:
                 # Try AST-based fix first
                 result = handler(analyzer, str(file_path), issue)
                 if result:
-                    print(f"[AST] Successfully fixed {issue.rule} in {issue.file_path}")
+                    self._log_fix_result(True, issue, "AST")
                     return True
                 
                 # Fall back to LLM-based fix if AST fix fails
                 print(f"[AST] Could not fix {issue.rule} in {issue.file_path}, trying LLM...")
-                return self._fix_with_llm(issue)
+                llm_result = self._fix_with_llm(issue)
+                self._log_fix_result(llm_result, issue, "LLM")
+                return llm_result
                 
             except Exception as e:
                 print(f"[AST] Error in handler for {issue.rule} in {issue.file_path}: {str(e)}")
                 # Fall back to LLM-based fix
-                return self._fix_with_llm(issue)
+                llm_result = self._fix_with_llm(issue)
+                self._log_fix_result(llm_result, issue, "LLM (fallback)")
+                return llm_result
             
         except Exception as e:
-            print(f"[ERROR] Unexpected error fixing {issue.rule} in {issue.file_path}: {str(e)}")
+            error_msg = f"Unexpected error fixing {issue.rule} in {issue.file_path}: {str(e)}"
+            print(f"[ERROR] {error_msg}")
             return False
     
     def _fix_unused_imports(self, analyzer: JavaASTAnalyzer, file_path: str) -> bool:

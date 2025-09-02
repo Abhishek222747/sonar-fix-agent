@@ -10,4 +10,4 @@ SONAR_ORGANIZATION = os.getenv("SONAR_ORGANIZATION", "").strip()  # e.g., your-o
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 
 # Max fixes per PR (batch size)
-MAX_FIXES_PER_PR = 3
+MAX_FIXES_PER_PR = 10

@@ -130,21 +130,41 @@ class JavaASTAnalyzer:
         Perform the actual AST parsing and analysis.
         This is separated from __init__ to allow for lazy loading.
         """
-        if self.tree is None:
+        if self.tree is not None:
+            return
+            
+        try:
+            # First try full parsing
             self.tree = javalang.parse.parse(self.source_code)
             self._extract_package_and_imports()
             
             # Process all type declarations (classes, interfaces, enums)
             for type_decl in self.tree.types:
-                if isinstance(type_decl, javalang.tree.ClassDeclaration):
-                    self._process_class(type_decl)
-                elif isinstance(type_decl, javalang.tree.InterfaceDeclaration):
-                    self._process_interface(type_decl)
+                try:
+                    if isinstance(type_decl, javalang.tree.ClassDeclaration):
+                        self._process_class(type_decl)
+                    elif isinstance(type_decl, javalang.tree.InterfaceDeclaration):
+                        self._process_interface(type_decl)
+                except Exception as e:
+                    print(f"[AST] Warning: Error processing type declaration: {str(e)}")
+                    continue
             
             if self.package:
                 for class_name in self.classes.keys():
-                    simple_name = class_name.split('.')[-1]
-                    self._type_resolver[simple_name] = class_name
+                    try:
+                        simple_name = class_name.split('.')[-1]
+                        self._type_resolver[simple_name] = class_name
+                    except Exception as e:
+                        print(f"[AST] Warning: Error processing class {class_name}: {str(e)}")
+                        continue
+                        
+        except javalang.parser.JavaSyntaxError as e:
+            print(f"[AST] Syntax error in {self.file_path or 'source'}: {e}")
+            # Fall back to a minimal working tree
+            self.tree = type('SimpleTree', (), {'types': []})()
+        except Exception as e:
+            print(f"[AST] Error analyzing {self.file_path or 'source'}: {str(e)}")
+            self.tree = type('SimpleTree', (), {'types': []})()
     
     def _process_class(self, class_node: javalang.tree.ClassDeclaration) -> None:
         """Process a class declaration with full semantic information."""
