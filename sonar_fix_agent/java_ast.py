@@ -139,6 +139,15 @@ class JavaASTAnalyzer:
             self._extract_package_and_imports()
             
             # Process all type declarations (classes, interfaces, enums)
+            # Add error handling for ReferenceType issues
+            if hasattr(self.tree, 'types') and self.tree.types:
+                for type_decl in self.tree.types:
+                    try:
+                        if hasattr(type_decl, 'name') and type_decl.name:
+                            self._process_type_declaration(type_decl)
+                    except Exception as e:
+                        print(f"[AST] Warning: Error processing type declaration: {e}")
+                        continue
             for type_decl in self.tree.types:
                 try:
                     if isinstance(type_decl, javalang.tree.ClassDeclaration):

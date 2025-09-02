@@ -78,68 +78,99 @@ class JavaSonarFixer:
         if not success:
             print(f"   Reason: {issue.message}")
 
+    def _fix_with_llm(self, file_path: str, issue: SonarIssue) -> bool:
+        """Fallback to LLM-based fix when AST-based fix fails."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                source = f.read()
+            
+            # Get the problematic line
+            lines = source.splitlines()
+            line_number = issue.line - 1  # Convert to 0-based index
+            if line_number < 0 or line_number >= len(lines):
+                return False
+                
+            prompt = f"""Fix the following Java code to resolve SonarQube issue {issue.rule}: {issue.message}
+            
+            File: {file_path}
+            Line {issue.line}:
+            {lines[line_number]}
+            
+            Provide only the fixed line(s) of code, nothing else."""
+            
+            # Call LLM API (implementation depends on your LLM service)
+            fixed_code = self._call_llm_api(prompt)
+            
+            if fixed_code:
+                # Replace the problematic line with the fixed version
+                lines[line_number] = fixed_code.strip()
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines))
+                return True
+            return False
+            
+        except Exception as e:
+            print(f"[LLM] Error in LLM-based fix for {issue.rule} in {file_path}: {str(e)}")
+            return False
+            
+    def _call_llm_api(self, prompt: str) -> str:
+        """Call the LLM API with the given prompt and return the response."""
+        # Replace this with actual LLM API call
+        # Example using OpenAI API:
+        # response = openai.ChatCompletion.create(
+        #     model="gpt-3.5-turbo",
+        #     messages=[{"role": "user", "content": prompt}]
+        # )
+        # return response.choices[0].message.content
+        return ""  # Return empty string as fallback
+
     def fix_issue(self, issue: SonarIssue) -> bool:
         """
-        Attempt to fix a Sonar issue.
+        Attempt to fix a Sonar issue using AST-based fix first, then fall back to LLM if needed.
         
+        Args:
+            issue: The Sonar issue to fix
+            
         Returns:
             bool: True if the issue was fixed, False otherwise
         """
+        file_path = str(self.project_root / issue.file_path)
+        
         try:
-            self._log_issue_details(issue)
-            
-            # Get the full path to the file
-            file_path = self.project_root / issue.file_path
-            
-            # Get or create AST analyzer for the file
-            if str(file_path) not in self.ast_cache:
+            # Try AST-based fix first
+            if file_path not in self.ast_cache:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    source = f.read()
+                self.ast_cache[file_path] = JavaASTAnalyzer(source, file_path)
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        source = f.read()
-                    
-                    analyzer = JavaASTAnalyzer(source, str(file_path))
-                    analyzer.analyze()  # Perform the AST parsing and analysis
-                    self.ast_cache[str(file_path)] = analyzer
-                    print("[AST] Successfully parsed and analyzed file")
-                except javalang.parser.JavaSyntaxError as e:
-                    print(f"[AST] Syntax error in {file_path}: {e}")
-                    return False
+                    self.ast_cache[file_path].analyze()
                 except Exception as e:
                     print(f"[AST] Error analyzing {file_path}: {str(e)}")
-                    return False
+                    # Continue with potentially partial analysis
             
-            analyzer = self.ast_cache[str(file_path)]
-            
-            # Get the appropriate handler for this rule
+            analyzer = self.ast_cache[file_path]
             handler = self._get_rule_handlers().get(issue.rule)
             
-            if not handler:
-                print(f"[AST] No handler found for rule: {issue.rule}")
-                return False
+            if handler:
+                try:
+                    if handler(analyzer, file_path, issue):
+                        print(f"✅ [AST] Fixed {issue.rule} in {os.path.basename(file_path)}")
+                        return True
+                    print(f"⚠️  [AST] Could not fix {issue.rule} in {os.path.basename(file_path)}")
+                except Exception as e:
+                    print(f"[AST] Error in handler for {issue.rule} in {file_path}: {str(e)}")
+            
+            # If AST-based fix failed, try LLM fallback
+            print(f"🔄 [LLM] Attempting LLM fix for {issue.rule} in {os.path.basename(file_path)}")
+            if self._fix_with_llm(file_path, issue):
+                print(f"✅ [LLM] Fixed {issue.rule} in {os.path.basename(file_path)}")
+                return True
                 
-            try:
-                # Try AST-based fix first
-                result = handler(analyzer, str(file_path), issue)
-                if result:
-                    self._log_fix_result(True, issue, "AST")
-                    return True
-                
-                # Fall back to LLM-based fix if AST fix fails
-                print(f"[AST] Could not fix {issue.rule} in {issue.file_path}, trying LLM...")
-                llm_result = self._fix_with_llm(issue)
-                self._log_fix_result(llm_result, issue, "LLM")
-                return llm_result
-                
-            except Exception as e:
-                print(f"[AST] Error in handler for {issue.rule} in {issue.file_path}: {str(e)}")
-                # Fall back to LLM-based fix
-                llm_result = self._fix_with_llm(issue)
-                self._log_fix_result(llm_result, issue, "LLM (fallback)")
-                return llm_result
+            print(f"❌ [LLM] Could not fix {issue.rule} in {os.path.basename(file_path)}")
+            return False
             
         except Exception as e:
-            error_msg = f"Unexpected error fixing {issue.rule} in {issue.file_path}: {str(e)}"
-            print(f"[ERROR] {error_msg}")
+            print(f"[ERROR] Unexpected error fixing {issue.rule} in {file_path}: {str(e)}")
             return False
     
     def _fix_unused_imports(self, analyzer: JavaASTAnalyzer, file_path: str) -> bool:
