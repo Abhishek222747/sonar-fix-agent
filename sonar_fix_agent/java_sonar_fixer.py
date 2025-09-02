@@ -76,23 +76,47 @@ class JavaSonarFixer:
             
             # Get or create AST analyzer for the file
             if str(file_path) not in self.ast_cache:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    source = f.read()
-                self.ast_cache[str(file_path)] = JavaASTAnalyzer(source, str(file_path))
-                self.ast_cache[str(file_path)].analyze()
-                
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        source = f.read()
+                    
+                    analyzer = JavaASTAnalyzer(source, str(file_path))
+                    analyzer.analyze()  # Perform the AST parsing and analysis
+                    self.ast_cache[str(file_path)] = analyzer
+                except javalang.parser.JavaSyntaxError as e:
+                    print(f"[AST] Syntax error in {file_path}: {e}")
+                    return False
+                except Exception as e:
+                    print(f"[AST] Error analyzing {file_path}: {str(e)}")
+                    return False
+            
             analyzer = self.ast_cache[str(file_path)]
             
             # Get the appropriate handler for this rule
             handler = self._get_rule_handlers().get(issue.rule)
             
-            if handler:
-                return handler(analyzer, str(file_path), issue)
+            if not handler:
+                print(f"[AST] No handler found for rule: {issue.rule}")
+                return False
                 
-            return False
+            try:
+                # Try AST-based fix first
+                result = handler(analyzer, str(file_path), issue)
+                if result:
+                    print(f"[AST] Successfully fixed {issue.rule} in {issue.file_path}")
+                    return True
+                
+                # Fall back to LLM-based fix if AST fix fails
+                print(f"[AST] Could not fix {issue.rule} in {issue.file_path}, trying LLM...")
+                return self._fix_with_llm(issue)
+                
+            except Exception as e:
+                print(f"[AST] Error in handler for {issue.rule} in {issue.file_path}: {str(e)}")
+                # Fall back to LLM-based fix
+                return self._fix_with_llm(issue)
             
         except Exception as e:
-            print(f"Error fixing issue {issue.rule} in {issue.file_path}: {str(e)}")
+            print(f"[ERROR] Unexpected error fixing {issue.rule} in {issue.file_path}: {str(e)}")
             return False
     
     def _fix_unused_imports(self, analyzer: JavaASTAnalyzer, file_path: str) -> bool:

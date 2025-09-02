@@ -111,7 +111,7 @@ class JavaASTAnalyzer:
         self.source_code = source_code
         self.file_path = str(file_path) if file_path else None
         self.lines = source_code.split('\n')
-        self.tree = javalang.parse.parse(source_code)
+        self.tree = None
         self.classes: Dict[str, JavaClass] = {}
         self.imports: Dict[str, str] = {}  # simple_name -> full_import
         self.imported_classes: Dict[str, str] = {}  # simple_name -> full_import
@@ -125,19 +125,26 @@ class JavaASTAnalyzer:
         self._method_calls: List[MethodCallInfo] = []
         self._imported_star: bool = False  # Track if there's a wildcard import
         
-        self._extract_package_and_imports()
-        
-        # Process all type declarations (classes, interfaces, enums)
-        for type_decl in self.tree.types:
-            if isinstance(type_decl, javalang.tree.ClassDeclaration):
-                self._process_class(type_decl)
-            elif isinstance(type_decl, javalang.tree.InterfaceDeclaration):
-                self._process_interface(type_decl)
-                
-        if self.package:
-            for class_name in self.classes.keys():
-                simple_name = class_name.split('.')[-1]
-                self._type_resolver[simple_name] = class_name
+    def analyze(self) -> None:
+        """
+        Perform the actual AST parsing and analysis.
+        This is separated from __init__ to allow for lazy loading.
+        """
+        if self.tree is None:
+            self.tree = javalang.parse.parse(self.source_code)
+            self._extract_package_and_imports()
+            
+            # Process all type declarations (classes, interfaces, enums)
+            for type_decl in self.tree.types:
+                if isinstance(type_decl, javalang.tree.ClassDeclaration):
+                    self._process_class(type_decl)
+                elif isinstance(type_decl, javalang.tree.InterfaceDeclaration):
+                    self._process_interface(type_decl)
+            
+            if self.package:
+                for class_name in self.classes.keys():
+                    simple_name = class_name.split('.')[-1]
+                    self._type_resolver[simple_name] = class_name
     
     def _process_class(self, class_node: javalang.tree.ClassDeclaration) -> None:
         """Process a class declaration with full semantic information."""
