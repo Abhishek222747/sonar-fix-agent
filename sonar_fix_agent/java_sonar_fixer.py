@@ -46,21 +46,31 @@ class JavaSonarFixer:
             'java:S3776': self._refactor_complex_method,
             'java:S125': lambda a, f, i: self._remove_commented_code(a, f),
             'java:S1118': lambda a, f, i: self._add_private_constructor(a, f),
-            'java:S1488': self._fix_immediate_return_variable,  # Local variables immediately returned/thrown
-            'java:S116': self._fix_immutable_exception,  # Exception classes should be immutable
-            'java:S100': self._fix_naming_convention,  # Method/class naming conventions
-            'java:S117': self._fix_naming_convention,  # Parameter/local variable naming conventions
-            'java:S1186': self._fix_empty_method,  # Empty methods should be removed or contain a comment
-            'java:S6437': self._fix_http_url_injection,  # HTTP request URL injection protection
+            'java:S1488': self._fix_immediate_return_variable,
+            'java:S116': self._fix_immutable_exception,
+            'java:S100': self._fix_naming_convention,
+            'java:S117': self._fix_naming_convention,
+            'java:S1186': self._fix_empty_method,
+            'java:S6437': self._fix_http_url_injection,
+            'java:S4973': self._fix_string_comparison,
+            'java:S1192': self._fix_duplicate_strings,
+            'java:S1643': self._fix_string_concat_in_loop,
             
-            # New handlers from SonarHandlers
+            # New common issue handlers
             'java:S108': lambda a, f, i: SonarHandlers.fix_empty_catch_block(str(f)),
             'java:S109': lambda a, f, i: SonarHandlers.fix_magic_numbers(str(f)),
             'java:S106': lambda a, f, i: SonarHandlers.fix_system_out_println(str(f)),
             'java:S1144': lambda a, f, i: SonarHandlers.fix_unused_private_methods(str(f)),
-            'java:S4973': self._fix_string_comparison,  # String comparison using ==
-            'java:S1192': self._fix_duplicate_strings,  # Duplicate string literals
-            'java:S1643': self._fix_string_concat_in_loop,  # String concatenation in loops
+            'java:S1172': self._fix_unused_parameters,  # Unused method parameters
+            'java:S112': self._fix_unlogged_exception,  # Exceptions should be logged or rethrown
+            'java:S1134': self._track_fixme_tags,  # Track FIXME tags
+            'java:S1135': self._track_todo_tags,  # Track TODO tags
+            'java:S2068': self._fix_hardcoded_credentials,  # Hardcoded credentials
+            'java:S3649': self._prevent_sql_injection,  # SQL injection prevention
+            'java:S2076': self._prevent_path_injection,  # File path injection prevention
+            'java:S2864': self._optimize_collection_usage,  # Inefficient Set/Map methods
+            'java:S1132': self._fix_string_comparison_side,  # String literals on left side
+            'java:S1126': self._simplify_boolean_return  # Simplify boolean returns
         }
     
     def _log_issue_details(self, issue: SonarIssue) -> None:
@@ -77,6 +87,321 @@ class JavaSonarFixer:
         print(f"{status} [{fix_type}] {issue.rule} in {issue.file_path}")
         if not success:
             print(f"   Reason: {issue.message}")
+
+    def _fix_unused_parameters(self, ast_analyzer: JavaASTAnalyzer, file_path: Path, issue: SonarIssue) -> bool:
+        """Remove unused method parameters."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Find the method containing the issue line
+            method = ast_analyzer.get_method_at_line(issue.line)
+            if not method:
+                return False
+                
+            # Find unused parameters
+            unused_params = []
+            for param in method.parameters:
+                if not ast_analyzer.is_parameter_used(method, param.name):
+                    unused_params.append(param)
+            
+            if not unused_params:
+                return False
+                
+            # Remove unused parameters from method signature
+            lines = content.splitlines()
+            method_line = method.start_line - 1  # 0-based
+            method_decl = lines[method_line]
+            
+            for param in sorted(unused_params, key=lambda p: p.start_position, reverse=True):
+                # Remove parameter from method declaration
+                start = param.start_position - 1
+                end = param.end_position
+                method_decl = method_decl[:start] + method_decl[end:]
+                
+                # Remove trailing comma if needed
+                method_decl = re.sub(r',\s*,', ',', method_decl)  # Remove double commas
+                method_decl = re.sub(r'\(\s*,', '(', method_decl)  # Remove leading comma
+                method_decl = re.sub(r',\s*\)', ')', method_decl)  # Remove trailing comma
+            
+            lines[method_line] = method_decl
+            
+            # Remove unused parameters from method calls
+            method_calls = ast_analyzer.find_method_calls(method.name)
+            for call in method_calls:
+                call_line = call.line - 1
+                if call_line < len(lines):
+                    call_text = lines[call_line]
+                    # Simple approach: remove parameters at the same positions
+                    # This is a simplified version and may need refinement
+                    param_positions = [p.start_position for p in unused_params]
+                    new_call = call_text
+                    for pos in sorted(param_positions, reverse=True):
+                        # Find the parameter in the call
+                        # This is a simplified approach and may need adjustment
+                        param_match = re.search(r'([^,)]+)(?:,|\s*\))', call_text[pos:])
+                        if param_match:
+                            param_text = param_match.group(1).strip()
+                            new_call = new_call.replace(param_text, '', 1)
+                    
+                    # Clean up any double commas or trailing/leading commas
+                    new_call = re.sub(r',\s*,', ',', new_call)
+                    new_call = re.sub(r'\(\s*,', '(', new_call)
+                    new_call = re.sub(r',\s*\)', ')', new_call)
+                    lines[call_line] = new_call
+            
+            # Write changes back to file
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(lines))
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error fixing unused parameters: {str(e)}")
+            return False
+
+    def _fix_unlogged_exception(self, ast_analyzer: JavaASTAnalyzer, file_path: Path, issue: SonarIssue) -> bool:
+        """Add logging for swallowed exceptions."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Find the catch block at the issue line
+            catch_block = ast_analyzer.get_catch_block_at_line(issue.line)
+            if not catch_block or not catch_block.body:
+                return False
+                
+            # Check if exception is already logged or rethrown
+            if 'log' in catch_block.body.lower() or 'throw' in catch_block.body:
+                return False
+                
+            # Add logging statement
+            lines = content.splitlines()
+            indent = ' ' * (catch_block.start_column - 1)
+            log_statement = f'{indent}log.error("Error occurred: {catch_block.exception_name}", {catch_block.exception_name});'
+            
+            # Insert log statement at the start of the catch block
+            insert_line = catch_block.start_line + 1  # After the catch line
+            lines.insert(insert_line, log_statement)
+            
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(lines))
+                
+            return True
+            
+        except Exception as e:
+            print(f"Error fixing unlogged exception: {str(e)}")
+            return False
+
+    def _track_fixme_tags(self, ast_analyzer: JavaASTAnalyzer, file_path: Path, issue: SonarIssue) -> bool:
+        """Track FIXME tags in comments."""
+        # This is a tracking-only rule, no automatic fix
+        print(f"⚠️ Found FIXME tag in {file_path}:{issue.line} - {issue.message}")
+        return False
+        
+    def _track_todo_tags(self, ast_analyzer: JavaASTAnalyzer, file_path: Path, issue: SonarIssue) -> bool:
+        """Track TODO tags in comments."""
+        # This is a tracking-only rule, no automatic fix
+        print(f"ℹ️  Found TODO in {file_path}:{issue.line} - {issue.message}")
+        return False
+
+    def _fix_hardcoded_credentials(self, ast_analyzer: JavaASTAnalyzer, file_path: Path, issue: SonarIssue) -> bool:
+        """Replace hardcoded credentials with secure alternatives."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Find the line with hardcoded credentials
+            line_num = issue.line - 1  # 0-based
+            lines = content.splitlines()
+            if line_num >= len(lines):
+                return False
+                
+            line = lines[line_num]
+            
+            # Simple pattern matching for common credential patterns
+            # This is a basic implementation and should be enhanced for production use
+            if 'password' in line.lower() or 'secret' in line.lower() or 'key' in line.lower():
+                # Replace with a secure property reference
+                lines[line_num] = line.replace('"', '')  # Remove hardcoded value
+                lines[line_num] = re.sub(r'=\s*([^;]+);', '= System.getenv("SECURE_CREDENTIAL");', lines[line_num])
+                
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines))
+                
+                print(f"⚠️  Replaced hardcoded credential in {file_path}. Please set the environment variable SECURE_CREDENTIAL.")
+                return True
+                
+            return False
+            
+        except Exception as e:
+            print(f"Error fixing hardcoded credentials: {str(e)}")
+            return False
+
+    def _prevent_sql_injection(self, ast_analyzer: JavaASTAnalyzer, file_path: Path, issue: SonarIssue) -> bool:
+        """Fix potential SQL injection vulnerabilities."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Find SQL statements in the file
+            lines = content.splitlines()
+            modified = False
+            
+            for i, line in enumerate(lines):
+                if 'Statement' in line and 'createStatement' in line:
+                    # Replace Statement with PreparedStatement
+                    lines[i] = line.replace('createStatement()', 'prepareStatement("SELECT * FROM table WHERE id = ?")')
+                    modified = True
+                elif 'execute(' in line and '+' in line and '?' not in line:
+                    # Replace string concatenation with parameterized query
+                    lines[i] = re.sub(r'"\s*\+\s*([^+]+)\s*\+\s*"', '?', line)
+                    modified = True
+            
+            if modified:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines))
+                return True
+                
+            return False
+            
+        except Exception as e:
+            print(f"Error fixing SQL injection: {str(e)}")
+            return False
+
+    def _prevent_path_injection(self, ast_analyzer: JavaASTAnalyzer, file_path: Path, issue: SonarIssue) -> bool:
+        """Fix potential path injection vulnerabilities."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            lines = content.splitlines()
+            modified = False
+            
+            for i, line in enumerate(lines):
+                if ('File.' in line or 'Path.' in line) and 'getCanonicalPath' not in line:
+                    # Add path normalization and validation
+                    lines[i] = line.replace('new File(', 'new File(new File(').replace(')', ').getCanonicalFile())')
+                    modified = True
+            
+            if modified:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines))
+                return True
+                
+            return False
+            
+        except Exception as e:
+            print(f"Error fixing path injection: {str(e)}")
+            return False
+
+    def _optimize_collection_usage(self, ast_analyzer: JavaASTAnalyzer, file_path: Path, issue: SonarIssue) -> bool:
+        """Optimize collection usage patterns."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            lines = content.splitlines()
+            modified = False
+            
+            for i, line in enumerate(lines):
+                # Replace containsKey() + get() with get() != null
+                if '.containsKey(' in line and 'get(' in lines[i+1] and 'if (' in line:
+                    key_match = re.search(r'\.containsKey\(([^)]+)\)', line)
+                    if key_match:
+                        key = key_match.group(1)
+                        lines[i] = re.sub(r'if\s*\([^)]*\bcontainsKey\s*\([^)]*\)[^)]*\)', 
+                                        f'if (map.get({key}) != null', line)
+                        modified = True
+            
+            if modified:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines))
+                return True
+                
+            return False
+            
+        except Exception as e:
+            print(f"Error optimizing collection usage: {str(e)}")
+            return False
+
+    def _fix_string_comparison_side(self, ast_analyzer: JavaASTAnalyzer, file_path: Path, issue: SonarIssue) -> bool:
+        """Fix string literal comparison order."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            lines = content.splitlines()
+            line_num = issue.line - 1
+            
+            if line_num >= len(lines):
+                return False
+                
+            line = lines[line_num]
+            
+            # Pattern for string literal on the right side of equals()
+            pattern = r'(\w+)\s*\.equals\s*\("([^"]+)"\)'
+            match = re.search(pattern, line)
+            
+            if match:
+                # Swap variable and literal
+                var = match.group(1)
+                literal = match.group(2)
+                lines[line_num] = line.replace(f'{var}.equals("{literal}")', f'"{literal}".equals({var})')
+                
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines))
+                return True
+                
+            return False
+            
+        except Exception as e:
+            print(f"Error fixing string comparison: {str(e)}")
+            return False
+
+    def _simplify_boolean_return(self, ast_analyzer: JavaASTAnalyzer, file_path: Path, issue: SonarIssue) -> bool:
+        """Simplify boolean return statements."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            lines = content.splitlines()
+            line_num = issue.line - 1
+            
+            if line_num >= len(lines):
+                return False
+                
+            line = lines[line_num].strip()
+            
+            # Pattern for if (condition) return true; else return false;
+            if_pattern = r'if\s*\(([^)]+)\)\s*\{\s*return\s+true\s*;\s*\}\s*else\s*\{\s*return\s+false\s*;\s*\}'
+            match = re.search(if_pattern, line)
+            
+            if match:
+                condition = match.group(1)
+                lines[line_num] = f'return {condition};'
+                
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines))
+                return True
+                
+            # Pattern for return condition ? true : false;
+            ternary_pattern = r'return\s+([^;]+)\s*\?\s*true\s*:\s*false\s*;'
+            match = re.search(ternary_pattern, line)
+            
+            if match:
+                condition = match.group(1)
+                lines[line_num] = f'return {condition};'
+                
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(lines))
+                return True
+                
+            return False
+            
+        except Exception as e:
+            print(f"Error simplifying boolean return: {str(e)}")
+            return False
 
     def _fix_with_llm(self, file_path: str, issue: SonarIssue) -> bool:
         """Fallback to LLM-based fix when AST-based fix fails."""
