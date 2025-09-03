@@ -53,7 +53,7 @@ class JavaSonarFixer:
             'java:S1186': self._fix_empty_method,
             'java:S6437': self._fix_http_url_injection,
             'java:S4973': self._fix_string_comparison,
-            'java:S1192': self._fix_duplicate_strings,
+            'java:S1192': self._fix_duplicate_strings,  # Now properly handles duplicate string literals
             'java:S1643': self._fix_string_concat_in_loop,
             
             # New common issue handlers
@@ -743,8 +743,9 @@ class JavaSonarFixer:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # Find all string literals
-            string_literals = re.findall(r'"([^"]*)"', content)
+            # Find all string literals with their positions
+            string_matches = list(re.finditer(r'"([^"]*)"', content))
+            string_literals = [m.group(1) for m in string_matches]
             
             # Count occurrences of each string
             string_counts = {}
@@ -758,13 +759,20 @@ class JavaSonarFixer:
             if not duplicate_strings:
                 return False
                 
-            # Add constants for duplicate strings
+            # Create constant names for duplicate strings
+            const_mapping = {}
+            for s in duplicate_strings:
+                # Create a constant name from the string
+                const_name = 'STR_' + re.sub(r'[^A-Z0-9]', '_', s.upper())[:30]
+                const_mapping[s] = const_name
+            
+            # Add constants to the class
             lines = content.split('\n')
             modified = False
             
             # Find class declaration to add constants
             for i, line in enumerate(lines):
-                if 'class ' in line and ('public ' in line or 'final ' in line):
+                if 'class ' in line and ('public ' in line or 'final ' in line or 'class ' in line):
                     # Find the opening brace
                     brace_line = i
                     while brace_line < len(lines) and '{' not in lines[brace_line]:
@@ -775,24 +783,30 @@ class JavaSonarFixer:
                         indent = ' ' * (len(lines[brace_line]) - len(lines[brace_line].lstrip()))
                         constants = []
                         
-                        for s, count in duplicate_strings.items():
-                            # Create a constant name from the string
-                            const_name = 'STR_' + re.sub(r'[^A-Z0-9]', '_', s.upper())[:30]
+                        for s, const_name in const_mapping.items():
                             constants.append(
-                                f"{indent}    private static final String {const_name} = \"{s}\";\n"
+                                f"{indent}    private static final String {const_name} = \"{s}\";"
                             )
                         
                         if constants:
-                            lines.insert(brace_line + 1, '\n' + ''.join(constants))
+                            # Add a newline after the opening brace if not already there
+                            if not lines[brace_line + 1].strip() == '':
+                                lines.insert(brace_line + 1, '')
+                            
+                            # Insert constants with proper indentation
+                            for const in reversed(constants):
+                                lines.insert(brace_line + 1, const)
+                            
+                            # Add another newline after constants if needed
+                            if brace_line + len(constants) + 1 < len(lines) and not lines[brace_line + len(constants) + 1].strip() == '':
+                                lines.insert(brace_line + len(constants) + 1, '')
+                            
                             modified = True
                     break
             
             # Replace string literals with constants
             if modified:
-                new_content = '\n'.join(lines)
-                for s, count in duplicate_strings.items():
-                    const_name = 'STR_' + re.sub(r'[^A-Z0-9]', '_', s.upper())[:30]
-                    new_content = new_content.replace(f'"{s}"', const_name)
+                content = '\n'.join(lines)
                 
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(new_content)
