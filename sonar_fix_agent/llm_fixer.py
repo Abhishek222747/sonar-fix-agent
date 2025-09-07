@@ -226,5 +226,4 @@ def fix_commented_code(code: str, message: str, context: Dict[str, Any]) -> Opti
     if len(new_lines) < len(lines):
         return '\n'.join(new_lines)
     return None
-        print(f"Error generating patch for {file_path} (rule: {rule}): {str(e)}")
-        return None
+    
