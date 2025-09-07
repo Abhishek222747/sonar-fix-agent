@@ -7,6 +7,7 @@ non-trivial code smells that can't be fixed with simple rule-based approaches.
 import ast
 import json
 import logging
+import os
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from pathlib import Path
