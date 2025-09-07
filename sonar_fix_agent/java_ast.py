@@ -210,14 +210,16 @@ class JavaASTAnalyzer:
             try:
                 # Process class-level annotations
                 if hasattr(class_node, 'annotations'):
-                    for annotation in class_node.annotations:
-                        try:
-                            if hasattr(annotation, 'name') and annotation.name:
-                                print(f"[AST] Found class annotation: {annotation.name}")
-                        except Exception as e:
-                            print(f"[AST] Warning: Error processing annotation: {str(e)}")
-                            continue
-                
+                    for ann in class_node.annotations:
+                        if hasattr(ann, 'name') and hasattr(ann.name, 'name'):
+                            java_class.annotations.append(ann.name.name)
+                        elif hasattr(ann, 'name'):
+                            java_class.annotations.append(str(ann.name))
+
+                # Process type parameters
+                if hasattr(class_node, 'type_parameters'):
+                    java_class.type_parameters = [tp.name for tp in class_node.type_parameters]
+
                 # Process fields
                 if hasattr(class_node, 'fields'):
                     for field in class_node.fields or []:

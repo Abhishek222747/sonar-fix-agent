@@ -11,7 +11,7 @@ import os
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from pathlib import Path
-import openai
+from openai import OpenAI
 import javalang
 from javalang.tree import MethodDeclaration, ClassDeclaration
 
@@ -54,8 +54,10 @@ class ComplexIssueFixer:
         self.ast_analyzer = None
         self.dependency_tracker = DependencyTracker(project_root=project_root or os.getcwd())
         
+        # Initialize OpenAI client if API key is available
+        self.openai_client = None
         if self.openai_api_key:
-            openai.api_key = self.openai_api_key
+            self.openai_client = OpenAI(api_key=self.openai_api_key)
     
     def analyze_complexity(self, code: str, file_path: str) -> Dict[str, Any]:
         """Analyze code complexity using AST and dependency analysis."""
@@ -245,19 +247,32 @@ REFACTORED CODE:
             raise ValueError("OpenAI API key not provided")
         
         try:
-            response = openai.ChatCompletion.create(
-                model="gpt-4",
+            response = self._get_llm_response(prompt)
+            return response
+        except Exception as e:
+            logger.error(f"Error getting LLM response: {str(e)}")
+            raise
+    
+    def _get_llm_response(self, prompt: str, max_tokens: int = 1000) -> Optional[str]:
+        """Get a response from the OpenAI API."""
+        if not self.openai_client:
+            logger.warning("OpenAI client not initialized. Skipping LLM analysis.")
+            return None
+            
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that refactors Java code to fix SonarQube issues."},
+                    {"role": "system", "content": "You are a helpful assistant that fixes Java code issues."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.2,
-                max_tokens=2000
+                max_tokens=max_tokens,
+                temperature=0.2
             )
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"Error getting LLM response: {str(e)}")
-            raise
+            return None
     
     def extract_code_from_response(self, response: str) -> str:
         """Extract the refactored code from the LLM response."""
