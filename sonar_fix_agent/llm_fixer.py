@@ -1,9 +1,24 @@
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Callable, TypeVar
 import re
 import random
 import string
 import json
+import os
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Type variable for the fixer function
+T = TypeVar('T', bound=Callable[..., Optional[str]])
+
+# Import the complex issue fixer
+try:
+    from .complex_issue_fixer import ComplexIssueFixer
+except ImportError:
+    ComplexIssueFixer = None  # Type: ignore
 
 class CredentialManager:
     """Manages sensitive credentials and their secure storage."""
@@ -21,9 +36,53 @@ class CredentialManager:
         value_lower = value.lower()
         return any(indicator in value_lower for indicator in credential_indicators)
 
+# Cache for complex issue fixer
+_complex_fixer = None
+
+def get_complex_fixer() -> Optional[ComplexIssueFixer]:
+    """Get or create a ComplexIssueFixer instance with lazy initialization."""
+    global _complex_fixer
+    if _complex_fixer is None and ComplexIssueFixer is not None:
+        _complex_fixer = ComplexIssueFixer()
+    return _complex_fixer
+
+def rule_based_fix(rule: str) -> Callable[[T], T]:
+    """Decorator to register a rule-based fixer function."""
+    def decorator(func: T) -> T:
+        if not hasattr(func, '_sonar_rules'):
+            func._sonar_rules = []  # type: ignore
+        func._sonar_rules.append(rule)  # type: ignore
+        return func
+    return decorator
+
+# Dictionary to store rule-based fixers
+_rule_fixers = {}
+
+def register_fixers() -> None:
+    """Register all rule-based fixers."""
+    global _rule_fixers
+    
+    # Clear existing fixers
+    _rule_fixers = {}
+    
+    # Register all functions with the @rule_based_fix decorator
+    for name, func in globals().items():
+        if hasattr(func, '_sonar_rules'):
+            for rule in func._sonar_rules:  # type: ignore
+                _rule_fixers[rule] = func
+
+@rule_based_fix('java:S1118')
+@rule_based_fix('java:S1481')
+@rule_based_fix('java:S125')
+@rule_based_fix('java:S2190')
+@rule_based_fix('java:S6437')
+@rule_based_fix('java:S6703')
 def generate_patch(file_path: str, code: str, rule: str, message: str, context: Optional[Dict[str, Any]] = None) -> Optional[str]:
     """
     Patch generator for Java Sonar issues using a hybrid approach.
+    
+    This function first tries rule-based fixes, then falls back to LLM-based fixes
+    for complex issues that can't be handled by simple rules.
     
     Args:
         file_path: Path to the file being analyzed
@@ -35,20 +94,37 @@ def generate_patch(file_path: str, code: str, rule: str, message: str, context: 
     Returns:
         str: The patched code, or None if no fix was applied
     """
-    # Handle different rules with appropriate fixers
-    fixer_map = {
-        'java:S2190': fix_infinite_recursion,
-        'java:S6437': fix_hardcoded_credentials,
-        'java:S6703': fix_database_credentials,
-        'java:S1118': fix_utility_class,
-        'java:S1481': fix_unused_variables,
-        'java:S125': fix_commented_code
-    }
+    context = context or {}
     
-    fixer = fixer_map.get(rule)
-    if fixer:
-        return fixer(code, message, context or {})
+    # Try rule-based fix first
+    if rule in _rule_fixers:
+        try:
+            fixed_code = _rule_fixers[rule](code, message, context)
+            if fixed_code is not None:
+                return fixed_code
+        except Exception as e:
+            logger.warning(f"Rule-based fixer for {rule} failed: {str(e)}")
+    
+    # For complex issues, try the LLM-based fixer
+    complex_fixer = get_complex_fixer()
+    if complex_fixer is not None:
+        try:
+            issue_info = {
+                'rule': rule,
+                'message': message,
+                'file_path': file_path,
+                **context
+            }
+            return complex_fixer.fix_complex_issue(code, issue_info, file_path)
+        except Exception as e:
+            logger.error(f"Complex issue fixer failed: {str(e)}")
+    
     return None
+    
+    # Ensure fixers are registered
+    if not _rule_fixers:
+        register_fixers()
+@rule_based_fix('java:S2190')
 def fix_infinite_recursion(code: str, message: str, context: Dict[str, Any]) -> Optional[str]:
     """
     Fix infinite recursion issues (S2190) by adding a base case or proper termination condition.
@@ -79,6 +155,7 @@ def fix_infinite_recursion(code: str, message: str, context: Dict[str, Any]) -> 
     
     return '\n'.join(lines) if modified else None
 
+@rule_based_fix('java:S6437')
 def fix_hardcoded_credentials(code: str, message: str, context: Dict[str, Any]) -> Optional[str]:
     """
     Fix hardcoded credentials issues (S6437) by replacing them with environment variables.
@@ -117,6 +194,7 @@ def fix_hardcoded_credentials(code: str, message: str, context: Dict[str, Any]) 
     
     return '\n'.join(lines) if modified else None
 
+@rule_based_fix('java:S6703')
 def fix_database_credentials(code: str, message: str, context: Dict[str, Any]) -> Optional[str]:
     """
     Fix database credential issues (S6703) by using a secure configuration approach.
@@ -168,6 +246,7 @@ def fix_database_credentials(code: str, message: str, context: Dict[str, Any]) -
     
     return '\n'.join(lines) if modified else None
 
+@rule_based_fix('java:S1118')
 def fix_utility_class(code: str, message: str, context: Dict[str, Any]) -> Optional[str]:
     """
     Add private constructor to utility classes (S1118).
@@ -183,6 +262,7 @@ def fix_utility_class(code: str, message: str, context: Dict[str, Any]) -> Optio
                 return '\n'.join(lines)
     return None
 
+@rule_based_fix('java:S1481')
 def fix_unused_variables(code: str, message: str, context: Dict[str, Any]) -> Optional[str]:
     """
     Remove unused local variables (S1481).
@@ -206,6 +286,7 @@ def fix_unused_variables(code: str, message: str, context: Dict[str, Any]) -> Op
     
     return '\n'.join(new_lines) if modified else None
 
+@rule_based_fix('java:S125')
 def fix_commented_code(code: str, message: str, context: Dict[str, Any]) -> Optional[str]:
     """
     Remove commented-out code (S125).
