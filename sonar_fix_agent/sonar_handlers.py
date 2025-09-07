@@ -179,3 +179,90 @@ class SonarHandlers:
             print(f"Error flagging unused private methods in {file_path}: {str(e)}")
             
         return False
+        
+    @staticmethod
+    def fix_collection_size_check(file_path: str) -> bool:
+        """
+        Fix collection size checks to use isEmpty() instead of size() == 0 (java:S1155).
+        
+        Examples:
+            - collection.size() == 0  -> collection.isEmpty()
+            - collection.size() > 0   -> !collection.isEmpty()
+            - collection.size() >= 1  -> !collection.isEmpty()
+            - collection.size() != 0  -> !collection.isEmpty()
+            - 0 == collection.size()  -> collection.isEmpty()
+            - 0 < collection.size()   -> !collection.isEmpty()
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            
+            modified = False
+            
+            for i, line in enumerate(lines):
+                # Skip comments and string literals
+                if '//' in line or '/*' in line or '*' in line or '"' in line or "'" in line:
+                    continue
+                
+                # Process each line to find and replace size() checks
+                
+                # 1. list.size() == 0  ->  list.isEmpty()
+                if 'size() == 0' in line:
+                    lines[i] = line.replace('size() == 0', 'isEmpty()')
+                    modified = True
+                    continue
+                    
+                # 2. 0 == list.size()  ->  list.isEmpty()
+                if '0 == ' in line and '.size()' in line:
+                    parts = line.split('0 == ')
+                    if len(parts) > 1 and '.size()' in parts[1]:
+                        var = parts[1].split('.size()')[0].strip()
+                        lines[i] = line.replace(f'0 == {var}.size()', f'{var}.isEmpty()')
+                        modified = True
+                        continue
+                
+                # 3. list.size() > 0  ->  !list.isEmpty()
+                if 'size() > 0' in line:
+                    lines[i] = line.replace('size() > 0', '!isEmpty()')
+                    modified = True
+                    continue
+                    
+                # 4. list.size() >= 1  ->  !list.isEmpty()
+                if 'size() >= 1' in line:
+                    lines[i] = line.replace('size() >= 1', '!isEmpty()')
+                    modified = True
+                    continue
+                    
+                # 5. 0 < list.size()  ->  !list.isEmpty()
+                if '0 < ' in line and '.size()' in line:
+                    parts = line.split('0 < ')
+                    if len(parts) > 1 and '.size()' in parts[1]:
+                        var = parts[1].split('.size()')[0].strip()
+                        lines[i] = line.replace(f'0 < {var}.size()', f'!{var}.isEmpty()')
+                        modified = True
+                        continue
+                
+                # 6. list.size() != 0  ->  !list.isEmpty()
+                if 'size() != 0' in line:
+                    lines[i] = line.replace('size() != 0', '!isEmpty()')
+                    modified = True
+                    continue
+                    
+                # 7. 0 != list.size()  ->  !list.isEmpty()
+                if '0 != ' in line and '.size()' in line:
+                    parts = line.split('0 != ')
+                    if len(parts) > 1 and '.size()' in parts[1]:
+                        var = parts[1].split('.size()')[0].strip()
+                        lines[i] = line.replace(f'0 != {var}.size()', f'!{var}.isEmpty()')
+                        modified = True
+                        continue
+            
+            if modified:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.writelines(lines)
+                return True
+                
+        except Exception as e:
+            print(f"Error fixing collection size check in {file_path}: {str(e)}")
+            
+        return False

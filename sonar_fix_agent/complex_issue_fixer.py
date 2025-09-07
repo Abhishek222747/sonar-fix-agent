@@ -15,7 +15,7 @@ import javalang
 from javalang.tree import MethodDeclaration, ClassDeclaration
 
 from .java_ast import JavaASTAnalyzer
-from .java_dependency_tracker import DependencyTracker
+from .java_dependency_tracker import JavaDependencyTracker as DependencyTracker
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -40,11 +40,18 @@ class CodeComplexityMetrics:
 class ComplexIssueFixer:
     """Handles complex SonarQube issues using LLM-based analysis."""
     
-    def __init__(self, openai_api_key: Optional[str] = None):
-        """Initialize the ComplexIssueFixer with optional OpenAI API key."""
+    def __init__(self, openai_api_key: Optional[str] = None, project_root: Optional[str] = None):
+        """
+        Initialize the ComplexIssueFixer with optional OpenAI API key and project root.
+        
+        Args:
+            openai_api_key: Optional API key for OpenAI services
+            project_root: Optional root directory of the Java project for dependency analysis
+        """
         self.openai_api_key = openai_api_key or os.getenv('OPENAI_API_KEY')
-        self.ast_analyzer = JavaASTAnalyzer()
-        self.dependency_tracker = DependencyTracker()
+        # Initialize without source_code, will be set in analyze_complexity
+        self.ast_analyzer = None
+        self.dependency_tracker = DependencyTracker(project_root=project_root or os.getcwd())
         
         if self.openai_api_key:
             openai.api_key = self.openai_api_key
@@ -52,32 +59,44 @@ class ComplexIssueFixer:
     def analyze_complexity(self, code: str, file_path: str) -> Dict[str, Any]:
         """Analyze code complexity using AST and dependency analysis."""
         try:
-            # Parse the Java code
-            tree = self.ast_analyzer.parse_java_code(code)
+            # Initialize the AST analyzer with the source code and parse it
+            self.ast_analyzer = JavaASTAnalyzer(source_code=code, file_path=file_path)
+            self.ast_analyzer.analyze()
             
             # Get method-level complexity metrics
             methods = []
-            for _, node in tree.filter(MethodDeclaration):
-                method_metrics = self._calculate_method_metrics(node, code)
-                methods.append({
-                    'name': node.name,
-                    'metrics': method_metrics.to_dict(),
-                    'start_line': node.position.line if hasattr(node, 'position') else 0,
-                    'end_line': self._get_end_line(node, code)
-                })
+            for class_name, java_class in self.ast_analyzer.classes.items():
+                for method_name, method in java_class.methods.items():
+                    method_metrics = CodeComplexityMetrics()
+                    method_metrics.line_count = method.end_line - method.start_line + 1
+                    # Calculate cyclomatic complexity
+                    method_metrics.cyclomatic_complexity = 1  # Start with 1 for the method entry
+                    # Add more complexity analysis as needed
+                    
+                    methods.append({
+                        'name': f"{class_name}.{method_name}",
+                        'metrics': method_metrics.to_dict(),
+                        'start_line': method.start_line,
+                        'end_line': method.end_line
+                    })
             
             # Get class-level metrics
             classes = []
-            for _, node in tree.filter(ClassDeclaration):
+            for class_name, java_class in self.ast_analyzer.classes.items():
                 classes.append({
-                    'name': node.name,
-                    'start_line': node.position.line if hasattr(node, 'position') else 0,
-                    'end_line': self._get_end_line(node, code)
+                    'name': class_name,
+                    'start_line': java_class.start_line,
+                    'end_line': java_class.end_line
                 })
             
             # Generate dependency graph
-            dependencies = self.dependency_tracker.analyze_dependencies(code, file_path)
-            
+            try:
+                dependencies = self.dependency_tracker.analyze_dependencies(code, file_path)
+            except Exception as e:
+                logger.warning(f"Could not analyze dependencies: {str(e)}")
+                dependencies = {}
+                
+            # Return the analysis results
             return {
                 'methods': methods,
                 'classes': classes,
@@ -282,11 +301,27 @@ REFACTORED CODE:
     
     def _check_syntax(self, code: str) -> bool:
         """Check if the code has valid Java syntax."""
+        if not code.strip():
+            return False
+            
         try:
-            self.ast_analyzer.parse_java_code(code)
-            return True
+            # First check if it's a complete compilation unit
+            if not any(code.strip().startswith(prefix) for prefix in 
+                      ('package ', 'import ', 'public class', 'class ', 'interface ', 'enum ')):
+                # Wrap in a class if it's just a method or field
+                wrapped_code = f"public class TempClass {{ {code} }}"
+            else:
+                wrapped_code = code
+                
+            # Try to parse with javalang directly for better error detection
+            try:
+                javalang.parse.parse(wrapped_code)
+                return True
+            except (javalang.parser.JavaSyntaxError, javalang.tokenize.LexerError):
+                return False
+                
         except Exception as e:
-            logger.error(f"Syntax error in generated code: {str(e)}")
+            logger.debug(f"Syntax check failed: {str(e)}")
             return False
     
     def fix_complex_issue(self, code: str, issue: Dict, file_path: str, test_runner=None) -> Optional[str]:

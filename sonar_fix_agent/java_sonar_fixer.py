@@ -55,6 +55,7 @@ class JavaSonarFixer:
             'java:S4973': self._fix_string_comparison,
             'java:S1192': self._fix_duplicate_strings,  # Now properly handles duplicate string literals
             'java:S1643': self._fix_string_concat_in_loop,
+            'java:S1155': lambda a, f, i: SonarHandlers.fix_collection_size_check(str(f)),  # Use isEmpty() instead of size() == 0
             
             # New common issue handlers
             'java:S108': lambda a, f, i: SonarHandlers.fix_empty_catch_block(str(f)),

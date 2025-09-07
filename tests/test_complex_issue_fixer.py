@@ -19,7 +19,11 @@ class TestComplexIssueFixer(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures."""
-        self.fixer = ComplexIssueFixer(openai_api_key="test_key")
+        self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.fixer = ComplexIssueFixer(
+            openai_api_key="test_key",
+            project_root=self.project_root
+        )
         self.sample_java_code = """
         public class Calculator {
             public int add(int a, int b) {
@@ -45,8 +49,8 @@ class TestComplexIssueFixer(unittest.TestCase):
         
         # Check method analysis
         method_names = [m['name'] for m in analysis['methods']]
-        self.assertIn('add', method_names)
-        self.assertIn('factorial', method_names)
+        self.assertTrue(any('add' in name for name in method_names), f"Expected 'add' in method names, got {method_names}")
+        self.assertTrue(any('factorial' in name for name in method_names), f"Expected 'factorial' in method names, got {method_names}")
         
         # Check complexity metrics
         for method in analysis['methods']:
