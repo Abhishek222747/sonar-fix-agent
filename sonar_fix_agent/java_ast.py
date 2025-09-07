@@ -85,11 +85,13 @@ class JavaMethod:
 class JavaClass:
     name: str
     package: str
-    is_interface: bool
-    is_abstract: bool
-    methods: Dict[str, JavaMethod] = field(default_factory=dict)
+    is_interface: bool = False
+    is_abstract: bool = False
+    annotations: list = field(default_factory=list)
+    type_parameters: list = field(default_factory=list)
+    methods: Dict[str, Any] = field(default_factory=dict)
     fields: Dict[str, str] = field(default_factory=dict)
-    field_info: Dict[str, VariableInfo] = field(default_factory=dict)
+    field_info: Dict[str, Any] = field(default_factory=dict)
     parent_class: Optional[str] = None
     interfaces: List[str] = field(default_factory=list)
     start_line: int = 0
@@ -188,15 +190,20 @@ class JavaASTAnalyzer:
             # Get class modifiers safely
             modifiers = []
             if hasattr(class_node, 'modifiers'):
-                modifiers = [m.lower() for m in class_node.modifiers or []]
+                modifiers = [m.lower() for m in getattr(class_node, 'modifiers', []) or []]
+            
+            # Get position information safely
+            start_line = 0
+            if hasattr(class_node, 'position') and class_node.position:
+                start_line = getattr(class_node.position, 'line', 0)
             
             # Create class metadata with detailed information
             java_class = JavaClass(
                 name=class_name,
                 package=self.package,
-                is_interface=False,
-                is_abstract='abstract' in modifiers,
-                start_line=getattr(class_node, 'position', None).line if hasattr(class_node, 'position') else 0,
+                is_interface=isinstance(class_node, javalang.tree.InterfaceDeclaration),
+                is_abstract='abstract' in modifiers or isinstance(class_node, javalang.tree.InterfaceDeclaration),
+                start_line=start_line,
                 end_line=0  # Will be updated after processing the body
             )
             
@@ -209,45 +216,65 @@ class JavaASTAnalyzer:
             
             try:
                 # Process class-level annotations
-                if hasattr(class_node, 'annotations'):
+                if hasattr(class_node, 'annotations') and class_node.annotations:
                     for ann in class_node.annotations:
-                        if hasattr(ann, 'name') and hasattr(ann.name, 'name'):
-                            java_class.annotations.append(ann.name.name)
-                        elif hasattr(ann, 'name'):
-                            java_class.annotations.append(str(ann.name))
+                        try:
+                            if hasattr(ann, 'name'):
+                                if hasattr(ann.name, 'name'):
+                                    java_class.annotations.append(ann.name.name)
+                                else:
+                                    java_class.annotations.append(str(ann.name))
+                        except Exception as e:
+                            print(f"[AST] Error processing annotation: {str(e)}")
 
-                # Process type parameters
-                if hasattr(class_node, 'type_parameters'):
-                    java_class.type_parameters = [tp.name for tp in class_node.type_parameters]
+                # Process type parameters safely
+                if hasattr(class_node, 'type_parameters') and class_node.type_parameters:
+                    try:
+                        java_class.type_parameters = [tp.name for tp in class_node.type_parameters]
+                    except (AttributeError, TypeError) as e:
+                        print(f"[AST] Error processing type parameters: {str(e)}")
+                        java_class.type_parameters = []
 
                 # Process fields
-                if hasattr(class_node, 'fields'):
-                    for field in class_node.fields or []:
-                        self._process_field(field)
+                if hasattr(class_node, 'fields') and class_node.fields:
+                    for field in class_node.fields:
+                        try:
+                            self._process_field(field)
+                        except Exception as e:
+                            print(f"[AST] Error processing field in {class_name}: {str(e)}")
                 
                 # Process methods
-                if hasattr(class_node, 'methods'):
-                    for method in class_node.methods or []:
-                        self._process_method(method)
+                if hasattr(class_node, 'methods') and class_node.methods:
+                    for method in class_node.methods:
+                        try:
+                            self._process_method(method)
+                        except Exception as e:
+                            print(f"[AST] Error processing method in {class_name}: {str(e)}")
                 
                 # Process constructors
-                if hasattr(class_node, 'constructors'):
-                    for constructor in class_node.constructors or []:
-                        self._process_constructor(constructor)
+                if hasattr(class_node, 'constructors') and class_node.constructors:
+                    for constructor in class_node.constructors:
+                        try:
+                            self._process_constructor(constructor)
+                        except Exception as e:
+                            print(f"[AST] Error processing constructor in {class_name}: {str(e)}")
                 
                 # Process inner types (classes, interfaces, enums)
-                if hasattr(class_node, 'type_declarations'):
-                    for inner_type in class_node.type_declarations or []:
-                        if isinstance(inner_type, javalang.tree.ClassDeclaration):
-                            self._process_class(inner_type)
-                        elif isinstance(inner_type, javalang.tree.InterfaceDeclaration):
-                            self._process_interface(inner_type)
-                        elif isinstance(inner_type, javalang.tree.EnumDeclaration):
-                            self._process_enum(inner_type)
+                if hasattr(class_node, 'type_declarations') and class_node.type_declarations:
+                    for inner_type in class_node.type_declarations:
+                        try:
+                            if isinstance(inner_type, javalang.tree.ClassDeclaration):
+                                self._process_class(inner_type)
+                            elif isinstance(inner_type, javalang.tree.InterfaceDeclaration):
+                                self._process_interface(inner_type)
+                            elif isinstance(inner_type, javalang.tree.EnumDeclaration):
+                                self._process_enum(inner_type)
+                        except Exception as e:
+                            print(f"[AST] Error processing inner type in {class_name}: {str(e)}")
                 
                 # Update end line if not set
                 if java_class.end_line == 0 and hasattr(class_node, 'position') and class_node.position:
-                    java_class.end_line = class_node.position.line
+                    java_class.end_line = getattr(class_node.position, 'line', start_line + 1)
                             
             except Exception as e:
                 print(f"[AST] Error processing class {class_name} members: {str(e)}")
@@ -267,14 +294,19 @@ class JavaASTAnalyzer:
                 self._current_class = prev_class
 
     def _process_interface(self, interface_node):
-        """Process an interface declaration."""
+        """Process an interface declaration with enhanced error handling and type safety."""
         try:
             if not hasattr(interface_node, 'name') or not interface_node.name:
                 print("[AST] Warning: Interface node missing name attribute")
-                return
+                return None
                 
-            interface_name = interface_node.name
+            interface_name = str(interface_node.name)
             full_name = f"{self.package}.{interface_name}" if self.package else interface_name
+            
+            # Get position information safely
+            start_line = 0
+            if hasattr(interface_node, 'position') and interface_node.position:
+                start_line = getattr(interface_node.position, 'line', 0)
             
             # Create interface metadata
             java_interface = JavaClass(
@@ -282,7 +314,8 @@ class JavaASTAnalyzer:
                 package=self.package,
                 is_interface=True,
                 is_abstract=True,  # All interfaces are implicitly abstract
-                start_line=getattr(interface_node, 'position', None).line if hasattr(interface_node, 'position') else 0
+                start_line=start_line,
+                end_line=start_line  # Will be updated after processing members
             )
             
             # Store interface in the classes dictionary
@@ -294,34 +327,65 @@ class JavaASTAnalyzer:
             
             try:
                 # Process interface-level annotations
-                if hasattr(interface_node, 'annotations'):
+                if hasattr(interface_node, 'annotations') and interface_node.annotations:
                     for annotation in interface_node.annotations:
                         try:
                             if hasattr(annotation, 'name') and annotation.name:
-                                print(f"[AST] Found interface annotation: {annotation.name}")
+                                java_interface.annotations.append(str(annotation.name))
                         except Exception as e:
                             print(f"[AST] Warning: Error processing interface annotation: {str(e)}")
                             continue
                 
+                # Process type parameters
+                if hasattr(interface_node, 'type_parameters') and interface_node.type_parameters:
+                    try:
+                        java_interface.type_parameters = [tp.name for tp in interface_node.type_parameters]
+                    except (AttributeError, TypeError) as e:
+                        print(f"[AST] Warning: Error processing interface type parameters: {str(e)}")
+                        java_interface.type_parameters = []
+                
+                # Process extended interfaces
+                if hasattr(interface_node, 'extends') and interface_node.extends:
+                    try:
+                        java_interface.interfaces = [self._resolve_type(ext) for ext in interface_node.extends]
+                    except Exception as e:
+                        print(f"[AST] Warning: Error processing extended interfaces: {str(e)}")
+                
                 # Process fields (interface fields are implicitly public static final)
-                if hasattr(interface_node, 'fields'):
-                    for field in interface_node.fields or []:
-                        self._process_field(field)
+                if hasattr(interface_node, 'fields') and interface_node.fields:
+                    for field in interface_node.fields:
+                        try:
+                            self._process_field(field)
+                        except Exception as e:
+                            print(f"[AST] Error processing field in interface {interface_name}: {str(e)}")
+                            continue
                 
                 # Process methods (interface methods are implicitly public abstract)
-                if hasattr(interface_node, 'methods'):
-                    for method in interface_node.methods or []:
-                        self._process_method(method)
+                if hasattr(interface_node, 'methods') and interface_node.methods:
+                    for method in interface_node.methods:
+                        try:
+                            self._process_method(method)
+                        except Exception as e:
+                            print(f"[AST] Error processing method in interface {interface_name}: {str(e)}")
+                            continue
                 
                 # Process inner types (interfaces can contain other interfaces, enums, etc.)
-                if hasattr(interface_node, 'type_declarations'):
-                    for inner_type in interface_node.type_declarations or []:
-                        if isinstance(inner_type, javalang.tree.InterfaceDeclaration):
-                            self._process_interface(inner_type)
-                        elif isinstance(inner_type, javalang.tree.ClassDeclaration):
-                            self._process_class(inner_type)
-                        elif isinstance(inner_type, javalang.tree.EnumDeclaration):
-                            self._process_enum(inner_type)
+                if hasattr(interface_node, 'type_declarations') and interface_node.type_declarations:
+                    for inner_type in interface_node.type_declarations:
+                        try:
+                            if isinstance(inner_type, javalang.tree.InterfaceDeclaration):
+                                self._process_interface(inner_type)
+                            elif isinstance(inner_type, javalang.tree.ClassDeclaration):
+                                self._process_class(inner_type)
+                            elif isinstance(inner_type, javalang.tree.EnumDeclaration):
+                                self._process_enum(inner_type)
+                        except Exception as e:
+                            print(f"[AST] Error processing inner type in interface {interface_name}: {str(e)}")
+                            continue
+                
+                # Update end line if not set
+                if java_interface.end_line == 0 and hasattr(interface_node, 'position') and interface_node.position:
+                    java_interface.end_line = getattr(interface_node.position, 'line', start_line)
                             
             except Exception as e:
                 print(f"[AST] Error processing interface {interface_name} members: {str(e)}")
@@ -331,52 +395,118 @@ class JavaASTAnalyzer:
             # Restore previous class context
             self._current_class = prev_class
             
+            return java_interface
+            
         except Exception as e:
             print(f"[AST] Critical error processing interface: {str(e)}")
             import traceback
             traceback.print_exc()
+            return None
             
     def _process_method(self, method_node):
-        """Process a method declaration."""
+        """
+        Process a method declaration with enhanced error handling and type safety.
+        
+        Args:
+            method_node: The AST node representing the method
+            
+        Returns:
+            JavaMethod: The processed method information, or None if processing failed
+        """
         try:
+            # Validate input
             if not hasattr(method_node, 'name') or not method_node.name:
-                return
+                print("[AST] Warning: Method node missing name attribute")
+                return None
                 
-            # Get method details
-            method_name = method_node.name
+            # Get method name with type safety
+            method_name = str(method_node.name)
             
-            # Handle return type - check for void first
-            return_type = 'void'
-            if hasattr(method_node, 'return_type'):
-                if method_node.return_type is None:
-                    # Constructor case
-                    return_type = 'void'
-                elif isinstance(method_node.return_type, str) and method_node.return_type.lower() == 'void':
-                    return_type = 'void'
-                elif hasattr(method_node.return_type, 'name') and method_node.return_type.name == 'void':
-                    return_type = 'void'
-                else:
-                    return_type = self._resolve_type(method_node.return_type)
+            # Safely determine return type with comprehensive error handling
+            return_type = 'void'  # Default fallback
+            try:
+                if hasattr(method_node, 'return_type') and method_node.return_type is not None:
+                    if isinstance(method_node.return_type, str):
+                        return_type = method_node.return_type
+                    elif hasattr(method_node.return_type, 'name'):
+                        if method_node.return_type.name == 'void':
+                            return_type = 'void'
+                        else:
+                            try:
+                                return_type = self._resolve_type(method_node.return_type)
+                            except Exception as resolve_error:
+                                print(f"[AST] Warning: Could not resolve return type for method {method_name}: {str(resolve_error)}")
+                                return_type = 'Object'  # Fallback type
+            except Exception as e:
+                print(f"[AST] Warning: Error processing return type for method {method_name}: {str(e)}")
+                return_type = 'Object'  # Fallback type
             
-            # Get method modifiers
+            # Get method modifiers with error handling
             modifiers = []
-            if hasattr(method_node, 'modifiers'):
-                modifiers = [m.lower() for m in method_node.modifiers or []]
+            try:
+                if hasattr(method_node, 'modifiers'):
+                    modifiers = [str(m).lower() for m in getattr(method_node, 'modifiers', []) or []]
+            except Exception as e:
+                print(f"[AST] Warning: Error processing modifiers for method {method_name}: {str(e)}")
             
-            # Process parameters
+            # Process parameters with comprehensive error handling
             parameters = []
             parameter_names = []
             parameter_types = []
             
-            if hasattr(method_node, 'parameters'):
-                for param in method_node.parameters:
-                    param_type = self._resolve_type(param.type) if hasattr(param, 'type') else 'Object'
-                    param_name = param.name if hasattr(param, 'name') else f"param{len(parameters)}"
-                    parameters.append(f"{param_type} {param_name}")
-                    parameter_names.append(param_name)
-                    parameter_types.append(param_type)
+            if hasattr(method_node, 'parameters') and method_node.parameters:
+                for i, param in enumerate(method_node.parameters):
+                    try:
+                        # Default values
+                        param_type = 'Object'
+                        param_name = f"param{i}"
+                        
+                        # Process parameter type
+                        if hasattr(param, 'type') and param.type is not None:
+                            try:
+                                param_type = self._resolve_type(param.type)
+                            except Exception as resolve_error:
+                                print(f"[AST] Warning: Could not resolve type for parameter {i} in method {method_name}: {str(resolve_error)}")
+                                param_type = 'Object'  # Fallback type
+                        
+                        # Process parameter name
+                        if hasattr(param, 'name') and param.name:
+                            try:
+                                param_name = str(param.name)
+                            except Exception as name_error:
+                                print(f"[AST] Warning: Invalid parameter name for parameter {i} in method {method_name}: {str(name_error)}"
+                                )
+                        
+                        # Add to parameter lists
+                        parameters.append(f"{param_type} {param_name}")
+                        parameter_names.append(param_name)
+                        parameter_types.append(param_type)
+                        
+                    except Exception as param_error:
+                        print(f"[AST] Error processing parameter {i} in method {method_name}: {str(param_error)}")
+                        # Add a placeholder for the failed parameter
+                        param_name = f"param{i}_error"
+                        parameters.append(f"Object {param_name}")
+                        parameter_names.append(param_name)
+                        parameter_types.append("Object")
+                        continue
             
-            # Create method info
+            # Get position information safely
+            start_line = 0
+            end_line = 0
+            try:
+                if hasattr(method_node, 'position') and method_node.position:
+                    start_line = getattr(method_node.position, 'line', 0)
+                    end_line = start_line  # Default end line
+                
+                # Try to get end line from method body if it exists
+                if hasattr(method_node, 'body') and method_node.body:
+                    if hasattr(method_node.body, 'position') and method_node.body.position:
+                        end_line = getattr(method_node.body.position, 'line', start_line)
+            except Exception as pos_error:
+                print(f"[AST] Warning: Error getting position for method {method_name}: {str(pos_error)}")
+            
+            # Create method info with all required fields
             method_info = JavaMethod(
                 name=method_name,
                 parameters=parameters,
@@ -384,88 +514,193 @@ class JavaASTAnalyzer:
                 parameter_types=parameter_types,
                 return_type=return_type,
                 modifiers=modifiers,
-                start_line=getattr(method_node, 'position', None).line if hasattr(method_node, 'position') else 0,
-                end_line=0  # Will be updated after processing the body
+                start_line=start_line,
+                end_line=end_line
             )
             
-            # Store method in current class
+            # Store method in current class if available
             if self._current_class:
-                self._current_class.methods[method_name] = method_info
-                
-            # Process method body if it exists
-            if hasattr(method_node, 'body') and method_node.body and hasattr(method_node.body, 'position'):
-                method_info.end_line = method_node.body.position.line if method_node.body.position else 0
+                try:
+                    # Handle method overloading by appending parameter types to the key
+                    method_key = f"{method_name}{'#' + '#'.join(parameter_types) if parameter_types else ''}"
+                    self._current_class.methods[method_key] = method_info
+                except Exception as store_error:
+                    print(f"[AST] Error storing method {method_name} in class: {str(store_error)}")
+            
+            # Process method body if it exists (not abstract and has a body)
+            if (not hasattr(method_node, 'modifiers') or 'abstract' not in [m.lower() for m in getattr(method_node, 'modifiers', [])]) and \
+               hasattr(method_node, 'body') and method_node.body:
+                try:
+                    # Store current method context for semantic analysis
+                    prev_method = self._current_method
+                    self._current_method = method_info
+                    
+                    # Process method body (if needed in the future)
+                    # self._process_method_body(method_node.body, method_info)
+                    
+                except Exception as body_error:
+                    print(f"[AST] Error processing body of method {method_name}: {str(body_error)}")
+                finally:
+                    # Restore previous method context
+                    self._current_method = prev_method
             
             return method_info
             
         except Exception as e:
-            print(f"[AST] Error processing method {getattr(method_node, 'name', 'unknown')}: {str(e)}")
+            method_name = getattr(method_node, 'name', 'unknown')
+            print(f"[AST] Critical error processing method {method_name}: {str(e)}")
             import traceback
             traceback.print_exc()
+            return None
     
     def _process_constructor(self, constructor_node):
-        """Process a constructor declaration."""
+        """
+        Process a constructor declaration with enhanced error handling and type safety.
+        
+        Args:
+            constructor_node: The AST node representing the constructor
+            
+        Returns:
+            JavaMethod: The processed constructor information, or None if processing failed
+        """
         try:
+            # Validate input
             if not hasattr(constructor_node, 'name') or not constructor_node.name:
-                return
+                print("[AST] Warning: Constructor node missing name attribute")
+                return None
                 
-            # Get constructor details
-            class_name = constructor_node.name
+            # Get constructor name with type safety
+            class_name = str(constructor_node.name)
             
-            # Get constructor modifiers
+            # Get constructor modifiers with error handling
             modifiers = []
-            if hasattr(constructor_node, 'modifiers'):
-                modifiers = [m.lower() for m in constructor_node.modifiers or []]
+            try:
+                if hasattr(constructor_node, 'modifiers'):
+                    modifiers = [str(m).lower() for m in getattr(constructor_node, 'modifiers', []) or []]
+            except Exception as e:
+                print(f"[AST] Warning: Error processing modifiers for constructor {class_name}: {str(e)}")
             
-            # Process parameters
+            # Process parameters with comprehensive error handling
             parameters = []
             parameter_names = []
             parameter_types = []
             
-            if hasattr(constructor_node, 'parameters'):
-                for param in constructor_node.parameters:
-                    param_type = self._resolve_type(param.type) if hasattr(param, 'type') else 'Object'
-                    param_name = param.name if hasattr(param, 'name') else f"param{len(parameters)}"
-                    parameters.append(f"{param_type} {param_name}")
-                    parameter_names.append(param_name)
-                    parameter_types.append(param_type)
+            if hasattr(constructor_node, 'parameters') and constructor_node.parameters:
+                for i, param in enumerate(constructor_node.parameters):
+                    try:
+                        # Default values
+                        param_type = 'Object'  # Default fallback type
+                        param_name = f"param{i}"  # Default parameter name
+                        
+                        # Process parameter type
+                        if hasattr(param, 'type') and param.type is not None:
+                            try:
+                                param_type = self._resolve_type(param.type)
+                            except Exception as resolve_error:
+                                print(f"[AST] Warning: Could not resolve type for parameter {i} in constructor {class_name}: {str(resolve_error)}")
+                                param_type = 'Object'  # Fallback type
+                        
+                        # Process parameter name
+                        if hasattr(param, 'name') and param.name:
+                            try:
+                                param_name = str(param.name)
+                            except Exception as name_error:
+                                print(f"[AST] Warning: Invalid parameter name for parameter {i} in constructor {class_name}: {str(name_error)}")
+                        
+                        # Add to parameter lists
+                        parameters.append(f"{param_type} {param_name}")
+                        parameter_names.append(param_name)
+                        parameter_types.append(param_type)
+                        
+                    except Exception as param_error:
+                        print(f"[AST] Error processing parameter {i} in constructor {class_name}: {str(param_error)}")
+                        # Add a placeholder for the failed parameter
+                        param_name = f"param{i}_error"
+                        parameters.append(f"Object {param_name}")
+                        parameter_names.append(param_name)
+                        parameter_types.append("Object")
+                        continue
             
-            # Create constructor info (reusing JavaMethod class for now)
+            # Get position information safely
+            start_line = 0
+            end_line = 0
+            try:
+                if hasattr(constructor_node, 'position') and constructor_node.position:
+                    start_line = getattr(constructor_node.position, 'line', 0)
+                    end_line = start_line  # Default end line
+                
+                # Try to get end line from constructor body if it exists
+                if hasattr(constructor_node, 'body') and constructor_node.body:
+                    if hasattr(constructor_node.body, 'position') and constructor_node.body.position:
+                        end_line = getattr(constructor_node.body.position, 'line', start_line)
+            except Exception as pos_error:
+                print(f"[AST] Warning: Error getting position for constructor {class_name}: {str(pos_error)}")
+            
+            # Create constructor info (using JavaMethod class to represent constructors)
             constructor_info = JavaMethod(
                 name=class_name,  # Constructors have the same name as the class
                 parameters=parameters,
                 parameter_names=parameter_names,
                 parameter_types=parameter_types,
-                return_type='void',
+                return_type='void',  # Constructors don't have a return type
                 modifiers=modifiers,
-                start_line=getattr(constructor_node, 'position', None).line if hasattr(constructor_node, 'position') else 0,
-                end_line=0  # Will be updated after processing the body
+                start_line=start_line,
+                end_line=end_line
             )
             
-            # Store constructor in current class
+            # Store constructor in current class if available
             if self._current_class:
-                self._current_class.methods[f"{class_name}_constructor_{len(parameters)}"] = constructor_info
-                
+                try:
+                    # Use a special key format for constructors to avoid conflicts with methods
+                    # Format: <init>ClassName(param1Type,param2Type,...)
+                    param_sig = ','.join(parameter_types)
+                    constructor_key = f"<init>{class_name}({param_sig})"
+                    
+                    # Store the constructor in the methods dictionary with the special key
+                    self._current_class.methods[constructor_key] = constructor_info
+                    
+                except Exception as store_error:
+                    print(f"[AST] Error storing constructor for class {class_name}: {str(store_error)}")
+            
             # Process constructor body if it exists
-            if hasattr(constructor_node, 'body') and constructor_node.body and hasattr(constructor_node.body, 'position'):
-                constructor_info.end_line = constructor_node.body.position.line if constructor_node.body.position else 0
+            if hasattr(constructor_node, 'body') and constructor_node.body:
+                try:
+                    # Store current method context for semantic analysis
+                    prev_method = self._current_method
+                    self._current_method = constructor_info
+                    
+                    # Process constructor body (if needed in the future)
+                    # self._process_constructor_body(constructor_node.body, constructor_info)
+                    
+                except Exception as body_error:
+                    print(f"[AST] Error processing body of constructor {class_name}: {str(body_error)}")
+                finally:
+                    # Restore previous method context
+                    self._current_method = prev_method
             
             return constructor_info
             
         except Exception as e:
-            print(f"[AST] Error processing constructor: {str(e)}")
+            class_name = getattr(constructor_node, 'name', 'unknown')
+            print(f"[AST] Critical error processing constructor {class_name}: {str(e)}")
             import traceback
             traceback.print_exc()
+            return None
     
     def _process_enum(self, enum_node):
-        """Process an enum declaration."""
+        """Process an enum declaration with enhanced error handling and type safety."""
         try:
             if not hasattr(enum_node, 'name') or not enum_node.name:
                 print("[AST] Warning: Enum node missing name attribute")
-                return
+                return None
                 
-            enum_name = enum_node.name
+            enum_name = str(enum_node.name)
             full_name = f"{self.package}.{enum_name}" if self.package else enum_name
+            
+            # Get position information safely
+            start_line = 0
+            if hasattr(enum_node, 'position') and enum_node.position:
+                start_line = getattr(enum_node.position, 'line', 0)
             
             # Create enum metadata (enums are implicitly final and extend java.lang.Enum)
             java_enum = JavaClass(
@@ -473,7 +708,8 @@ class JavaASTAnalyzer:
                 package=self.package,
                 is_interface=False,
                 is_abstract=False,  # Enums can have abstract methods but are not abstract themselves
-                start_line=getattr(enum_node, 'position', None).line if hasattr(enum_node, 'position') else 0
+                start_line=start_line,
+                end_line=start_line  # Will be updated after processing members
             )
             
             # Store enum in the classes dictionary
@@ -485,54 +721,91 @@ class JavaASTAnalyzer:
             
             try:
                 # Process enum-level annotations
-                if hasattr(enum_node, 'annotations'):
+                if hasattr(enum_node, 'annotations') and enum_node.annotations:
                     for annotation in enum_node.annotations:
                         try:
                             if hasattr(annotation, 'name') and annotation.name:
-                                print(f"[AST] Found enum annotation: {annotation.name}")
+                                java_enum.annotations.append(str(annotation.name))
                         except Exception as e:
                             print(f"[AST] Warning: Error processing enum annotation: {str(e)}")
                             continue
                 
                 # Process enum constants
-                if hasattr(enum_node, 'constants'):
-                    for constant in enum_node.constants or []:
-                        constant_name = getattr(constant, 'name', None)
-                        if constant_name:
+                if hasattr(enum_node, 'constants') and enum_node.constants:
+                    for constant in enum_node.constants:
+                        try:
+                            constant_name = getattr(constant, 'name', None)
+                            if not constant_name:
+                                continue
+                                
+                            constant_name = str(constant_name)
+                            
                             # Add enum constant as a field
                             java_enum.fields[constant_name] = full_name  # Type is the enum itself
-                            java_enum.field_info[constant_name] = VariableInfo(
+                            
+                            # Create field info for the enum constant
+                            field_info = VariableInfo(
                                 name=constant_name,
                                 type_name=full_name,
                                 is_field=True,
-                                is_used=True,  # Enum constants are always used
-                                declaration_line=getattr(constant, 'position', None).line if hasattr(constant, 'position') else 0
+                                is_used=True,  # Enum constants are always considered used
+                                declaration_line=0
                             )
+                            
+                            # Set declaration line if position info is available
+                            if hasattr(constant, 'position') and constant.position:
+                                field_info.declaration_line = getattr(constant.position, 'line', 0)
+                            
+                            java_enum.field_info[constant_name] = field_info
+                            
+                        except Exception as e:
+                            print(f"[AST] Error processing enum constant: {str(e)}")
+                            continue
                 
                 # Process enum fields
-                if hasattr(enum_node, 'fields'):
-                    for field in enum_node.fields or []:
-                        self._process_field(field)
+                if hasattr(enum_node, 'fields') and enum_node.fields:
+                    for field in enum_node.fields:
+                        try:
+                            self._process_field(field)
+                        except Exception as e:
+                            print(f"[AST] Error processing field in enum {enum_name}: {str(e)}")
+                            continue
                 
                 # Process enum constructors
-                if hasattr(enum_node, 'constructors'):
-                    for constructor in enum_node.constructors or []:
-                        self._process_constructor(constructor)
+                if hasattr(enum_node, 'constructors') and enum_node.constructors:
+                    for constructor in enum_node.constructors:
+                        try:
+                            self._process_constructor(constructor)
+                        except Exception as e:
+                            print(f"[AST] Error processing constructor in enum {enum_name}: {str(e)}")
+                            continue
                 
                 # Process enum methods
-                if hasattr(enum_node, 'methods'):
-                    for method in enum_node.methods or []:
-                        self._process_method(method)
+                if hasattr(enum_node, 'methods') and enum_node.methods:
+                    for method in enum_node.methods:
+                        try:
+                            self._process_method(method)
+                        except Exception as e:
+                            print(f"[AST] Error processing method in enum {enum_name}: {str(e)}")
+                            continue
                 
                 # Process inner types (enums can contain other classes, interfaces, enums)
-                if hasattr(enum_node, 'type_declarations'):
-                    for inner_type in enum_node.type_declarations or []:
-                        if isinstance(inner_type, javalang.tree.ClassDeclaration):
-                            self._process_class(inner_type)
-                        elif isinstance(inner_type, javalang.tree.InterfaceDeclaration):
-                            self._process_interface(inner_type)
-                        elif isinstance(inner_type, javalang.tree.EnumDeclaration):
-                            self._process_enum(inner_type)
+                if hasattr(enum_node, 'type_declarations') and enum_node.type_declarations:
+                    for inner_type in enum_node.type_declarations:
+                        try:
+                            if isinstance(inner_type, javalang.tree.ClassDeclaration):
+                                self._process_class(inner_type)
+                            elif isinstance(inner_type, javalang.tree.InterfaceDeclaration):
+                                self._process_interface(inner_type)
+                            elif isinstance(inner_type, javalang.tree.EnumDeclaration):
+                                self._process_enum(inner_type)
+                        except Exception as e:
+                            print(f"[AST] Error processing inner type in enum {enum_name}: {str(e)}")
+                            continue
+                
+                # Update end line if not set
+                if java_enum.end_line == 0 and hasattr(enum_node, 'position') and enum_node.position:
+                    java_enum.end_line = getattr(enum_node.position, 'line', start_line)
                             
             except Exception as e:
                 print(f"[AST] Error processing enum {enum_name} members: {str(e)}")
@@ -542,44 +815,93 @@ class JavaASTAnalyzer:
             # Restore previous class context
             self._current_class = prev_class
             
+            return java_enum
+            
         except Exception as e:
             print(f"[AST] Critical error processing enum: {str(e)}")
             import traceback
             traceback.print_exc()
+            return None
     
     def _process_field(self, field_node):
-        """Process a field declaration."""
+        """Process a field declaration with enhanced error handling and type safety."""
         try:
             if not hasattr(field_node, 'declarators') or not field_node.declarators:
+                print("[AST] Warning: Field node missing declarators")
                 return
                 
-            # Get field type
-            field_type = self._resolve_type(field_node.type) if hasattr(field_node, 'type') else 'Object'
+            # Safely get field type with fallback
+            field_type = 'Object'  # Default fallback type
+            try:
+                if hasattr(field_node, 'type') and field_node.type is not None:
+                    field_type = self._resolve_type(field_node.type)
+            except Exception as e:
+                print(f"[AST] Warning: Error resolving field type: {str(e)}")
+                field_type = 'Object'
             
-            # Get field modifiers
+            # Get field modifiers safely
             modifiers = []
-            if hasattr(field_node, 'modifiers'):
-                modifiers = [m.lower() for m in field_node.modifiers or []]
+            try:
+                if hasattr(field_node, 'modifiers'):
+                    modifiers = [str(m).lower() for m in getattr(field_node, 'modifiers', []) or []]
+            except Exception as e:
+                print(f"[AST] Warning: Error processing field modifiers: {str(e)}")
             
-            # Process each variable declarator
-            for declarator in field_node.declarators:
-                if not hasattr(declarator, 'name'):
+            # Process each declarator (multiple variables can be declared in one statement)
+            for declarator in field_node.declarators or []:
+                try:
+                    if not hasattr(declarator, 'name') or not declarator.name:
+                        print("[AST] Warning: Field declarator missing name")
+                        continue
+                        
+                    field_name = str(declarator.name)
+                    
+                    # Store field in current class if available
+                    if self._current_class:
+                        try:
+                            # Store field type
+                            self._current_class.fields[field_name] = field_type
+                            
+                            # Create field info for semantic analysis
+                            field_info = VariableInfo(
+                                name=field_name,
+                                type_name=field_type,
+                                is_field=True,
+                                is_used=False,  # Will be updated during semantic analysis
+                                declaration_line=0
+                            )
+                            
+                            # Set declaration line if position info is available
+                            try:
+                                if hasattr(field_node, 'position') and field_node.position:
+                                    field_info.declaration_line = getattr(field_node.position, 'line', 0)
+                            except Exception as e:
+                                print(f"[AST] Warning: Error getting field position: {str(e)}")
+                            
+                            # Store field info
+                            self._current_class.field_info[field_name] = field_info
+                            
+                            # If there's an initializer, process it
+                            if hasattr(declarator, 'initializer') and declarator.initializer:
+                                try:
+                                    # Mark field as used if it has an initializer
+                                    field_info.is_used = True
+                                    
+                                    # TODO: Process the initializer expression for more detailed analysis
+                                    # This would involve calling _process_expression()
+                                    
+                                except Exception as e:
+                                    print(f"[AST] Warning: Error processing field initializer for {field_name}: {str(e)}")
+                            
+                        except Exception as e:
+                            print(f"[AST] Error storing field {field_name}: {str(e)}")
+                            
+                except Exception as e:
+                    print(f"[AST] Error processing field declarator: {str(e)}")
                     continue
-                    
-                var_info = VariableInfo(
-                    name=declarator.name,
-                    type_name=field_type,
-                    is_field=True,
-                    declaration_line=getattr(field_node, 'position', None).line if hasattr(field_node, 'position') else 0
-                )
-                
-                # Store field info in current class/interface
-                if self._current_class:
-                    self._current_class.fields[declarator.name] = field_type
-                    self._current_class.field_info[declarator.name] = var_info
-                    
+                        
         except Exception as e:
-            print(f"[AST] Error processing field: {str(e)}")
+            print(f"[AST] Critical error in _process_field: {str(e)}")
             import traceback
             traceback.print_exc()
     
